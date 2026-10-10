@@ -44,6 +44,7 @@ other computer – `localhost` only works on the Pi itself.
    Shift adds, Ctrl removes. Right-drag rotates, middle-drag pans, wheel zooms,
    hold Alt to rotate with the left button. `Ctrl+A` all, `Esc` none,
    `Ctrl+I` invert, `+`/`-` grow/shrink.
+
    **Objects found:** when a file is opened, the model is analysed and split
    into likely objects, even if everything is fused into one surface. Shapes
    are separated where the surface folds inwards (a concave crease, like the
