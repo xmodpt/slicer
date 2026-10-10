@@ -170,8 +170,10 @@ Number keys 1–9 and 0 also pick tools.
    buttons and `Q` / `E` rotate by the chosen angle (5/15/45/90°); *X 90°* /
    *Y 90°* tip it over and set it back on the plate.
    **Resize:** the *Resize* tool (`Z`) – type the size in mm for X, Y, Z or a
-   percentage; *Keep proportions* scales all axes together. Presets: 50 %,
-   200 %, *inch → mm* (×25.4, for models saved in inches) and *mm → inch*.
+   percentage of the size it had when it was opened (so 1000 % is ten times
+   the original, however often you resize; for selected parts it is % of
+   their current size); *Keep proportions* scales all axes together. Presets
+   (relative to the current size): 50 %, 200 %, 1000 %, *inch → mm* (×25.4, for models saved in inches) and *mm → inch*.
    *Apply size* (or Enter) resizes around the bottom centre, so the model
    stays on the plate. With split-off parts selected, only they are resized.
    **Lay flat:** the *Lay flat* tool (`0`) – click any face and the model
@@ -194,6 +196,9 @@ Number keys 1–9 and 0 also pick tools.
       bit deeper. Thin walls get small connectors; areas too thin get none,
       and holes never break through the other side.
    3. *Cut* (or Enter) – both halves are closed and get their connectors.
+      The message says which half has the pins and which the holes. Right
+      after the cut the halves still touch, so each pin sits inside its hole
+      and can't be seen – *Pull apart* slides the hole half away along the cut.
       *Arrange for printing* then lays each half on its best face (pins up,
       or cut face down) and puts the halves and dowels side by side; download
       them with *Download parts*. Tips for printing and gluing are shown.

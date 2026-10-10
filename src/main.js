@@ -86,6 +86,10 @@ async function loadSoup(soup, name) {
   if (!mesh.triangleCount) throw new Error('The file contains no triangles.');
   if ($('auto-place').checked) mesh.placeOnPlate();
   state.mesh = mesh;
+  {
+    const b = mesh.bounds();
+    state.openSize = Math.max(...[0, 1, 2].map((k) => b.max[k] - b.min[k])); // for "% of the original size"
+  }
   state.fileName = name;
   state.modelName = null;
   state.open = new Map();
@@ -416,6 +420,7 @@ function refresh({ frame = false } = {}) {
   ANALYSIS_STEPS.forEach(runStep);
   updatePlacement();
   if (state.tool === 'cut') setCut({});
+  if (state.tool === 'scale') fillScale({ force: true });
   updateButtons();
 }
 
@@ -976,7 +981,7 @@ function setTool(tool) {
       renderObjectList();
     }
   }
-  if (tool === 'scale') fillScale();
+  if (tool === 'scale') fillScale({ force: true });
   if (tool === 'cut' && state.mesh) setCut({});
   else showCutPlane();
   setHoverObjects([]);
@@ -1669,11 +1674,18 @@ function doCut() {
   clearTimeout(analysisTimer); // the plane now sits on the new caps – nothing to analyse until it moves
   $('cut-analysis').innerHTML = '';
   if (!result || state.mesh.triangleCount === before) return;
-  state.lastCut = { normal: [...cut.normal], offset: cut.offset, dowelFaces: result.dowelFaces, hasPins: result.pins.some((p) => p.kind === 'pin') };
+  state.lastCut = {
+    normal: [...cut.normal],
+    offset: cut.offset,
+    dowelFaces: result.dowelFaces,
+    hasPins: result.pins.some((p) => p.kind === 'pin'),
+    longest: Math.max(0, ...result.pins.map((p) => Math.max(p.length, p.holeDepth))),
+  };
   viewer.setConnectorPreview(null);
   setCutStep(4);
   const conns = result.areas.flatMap((a) => a.connectors);
-  $('cut-done-text').textContent = `Cut done – ${connectorText(conns)}. Next: arrange the halves for printing, then download the parts.`;
+  const where = conns.length ? ` ${connectorSides(cut.normal, conns)} The halves still touch, so the connectors sit inside each other – “Pull apart” shows them.` : '';
+  $('cut-done-text').textContent = `Cut done – ${connectorText(conns)}.${where} Next: arrange the halves for printing, then download the parts.`;
   const tips = [
     'Arrange for printing lays each half on its best face and puts them side by side.',
     ...result.notes,
@@ -1691,16 +1703,27 @@ function doCut() {
   showCutPlane();
 }
 
-// After a cut: lay the halves on their best faces and place everything side
-// by side on the plate (one undo step).
-function arrangeForPrinting() {
+// Where the connectors went, in words: "Pins stand on the −X half, …".
+function connectorSides(n, conns) {
+  const k = [0, 1, 2].reduce((a, b) => (Math.abs(n[b]) > Math.abs(n[a]) ? b : a), 0);
+  const axis = 'XYZ'[k];
+  const pos = n[k] > 0;
+  const names = k === 2 ? ['bottom', 'top'] : [`−${axis}`, `+${axis}`];
+  const lower = names[pos ? 0 : 1], upper = names[pos ? 1 : 0];
+  const pins = conns.filter((c) => c.kind === 'pin').length, dowels = conns.length - pins;
+  return [
+    pins ? `Pins stand on the ${lower} half; their holes are in the ${upper} half.` : '',
+    dowels ? `Dowel holes are in both halves; the dowels are separate parts beside the model.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+// The parts of the model after the last cut, by side of the cut plane.
+function cutGroups() {
   const lc = state.lastCut;
   const mesh = state.mesh;
-  if (!lc || !mesh) return;
   const n = lc.normal;
-  const parts = mesh.parts();
   const groups = { lower: [], upper: [], dowel: [] };
-  for (const part of parts) {
+  for (const part of mesh.parts()) {
     const f0 = part.faces[0];
     if (lc.dowelFaces && f0 >= lc.dowelFaces[0] && f0 < lc.dowelFaces[1]) {
       groups.dowel.push(part);
@@ -1710,11 +1733,41 @@ function arrangeForPrinting() {
     const c = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
     groups[n[0] * c[0] + n[1] * c[1] + n[2] * c[2] > lc.offset ? 'upper' : 'lower'].push(part);
   }
-  const maskOf = (list) => {
-    const m = new Uint8Array(mesh.triangleCount);
-    for (const p of list) for (const t of p.faces) m[t] = 1;
-    return m;
-  };
+  return groups;
+}
+
+const maskOfParts = (list) => {
+  const m = new Uint8Array(state.mesh.triangleCount);
+  for (const p of list) for (const t of p.faces) m[t] = 1;
+  return m;
+};
+
+// After a cut: slide the upper half away along the plane normal so the pins
+// and holes are visible.
+function pullApart() {
+  const lc = state.lastCut;
+  const mesh = state.mesh;
+  if (!lc || !mesh) return;
+  const { upper } = cutGroups();
+  if (!upper.length) return;
+  const gap = Math.max(10, lc.longest * 3);
+  const d = lc.normal.map((x) => x * gap);
+  transformBurst(() => mesh.translate(d[0], d[1], d[2], mesh.verticesOf(maskOfParts(upper))));
+  state.moving = false;
+  lc.offset += gap; // the upper half moved with its side of the plane
+  viewer.frame();
+  toast('Halves pulled apart – rotate the view to see the pins and holes');
+}
+
+// After a cut: lay the halves on their best faces and place everything side
+// by side on the plate (one undo step).
+function arrangeForPrinting() {
+  const lc = state.lastCut;
+  const mesh = state.mesh;
+  if (!lc || !mesh) return;
+  const n = lc.normal;
+  const groups = cutGroups();
+  const maskOf = maskOfParts;
   transformBurst(() => {
     // Upper half: cut face (facing -n) down. Lower half: with pins, cut face up
     // so the pins point up; without, cut face down (flat on the plate).
@@ -1739,6 +1792,7 @@ function arrangeForPrinting() {
 }
 
 $('cut-arrange').addEventListener('click', arrangeForPrinting);
+$('cut-apart').addEventListener('click', pullApart);
 $('cut-export').addEventListener('click', () => $('export-zip').click());
 for (const id of ['cut-type', 'cut-pins', 'cut-dia', 'cut-len', 'cut-tol']) $(id).addEventListener('change', scheduleCutAnalysis);
 
@@ -1781,6 +1835,11 @@ function cutClick(face, p) {
 // Resize
 
 let scaleBase = null; // size of the target when the card was filled
+let scaleEdited = null; // 'pct' or the axis index typed last
+let scalePct0 = 100; // what the % box shows for the current size
+
+// Accepts "1000", "1000 %", "12,5", "12.5 mm".
+const readNumber = (id) => parseFloat($(id).value.replace(',', '.').replace(/[^\d.eE+-]/g, ''));
 
 function scaleTargetBounds() {
   const target = moveTarget();
@@ -1788,57 +1847,78 @@ function scaleTargetBounds() {
   return { target, size: [0, 1, 2].map((k) => b.max[k] - b.min[k]) };
 }
 
-function fillScale() {
+function fillScale({ force = false } = {}) {
   if (!state.mesh) return;
+  // Don't overwrite what the user is typing.
+  if (!force && scaleBase && document.activeElement?.closest?.('[data-card="scale"]')) return;
   const { target, size } = scaleTargetBounds();
   scaleBase = size;
+  scaleEdited = null;
   $('scale-target').textContent = target.faces
     ? 'Resizing the selected parts.'
     : countSelected()
       ? 'The selection is joined to the rest of the model, so the whole model is resized. Split it (S) first to resize it on its own.'
       : 'Resizing the whole model.';
   ['x', 'y', 'z'].forEach((a, k) => ($('scale-' + a).value = size[k].toFixed(2)));
-  $('scale-pct').value = 100;
+  // The whole model's % is measured against its size when it was opened.
+  scalePct0 = !target.faces && state.openSize ? (Math.max(...size) / state.openSize) * 100 : 100;
+  $('scale-pct').value = String(+scalePct0.toFixed(2));
+  $('scale-pct-of').textContent = target.faces ? '% of now' : '% of original';
 }
 
 // Typing one size with "keep proportions" scales the others to match.
 ['x', 'y', 'z'].forEach((a, k) => {
-  $('scale-' + a).addEventListener('input', (e) => {
+  $('scale-' + a).addEventListener('input', () => {
+    scaleEdited = k;
     if (!scaleBase || !scaleBase[k]) return;
-    const f = +e.target.value / scaleBase[k];
+    const f = readNumber('scale-' + a) / scaleBase[k];
     if (!(f > 0)) return;
     if ($('scale-lock').checked) {
       ['x', 'y', 'z'].forEach((b, j) => j !== k && ($('scale-' + b).value = (scaleBase[j] * f).toFixed(2)));
-      $('scale-pct').value = +(f * 100).toFixed(2);
+      $('scale-pct').value = String(+(f * scalePct0).toFixed(2));
     } else {
       $('scale-pct').value = '';
     }
   });
 });
-$('scale-pct').addEventListener('input', (e) => {
-  const f = +e.target.value / 100;
+$('scale-pct').addEventListener('input', () => {
+  scaleEdited = 'pct';
+  const f = readNumber('scale-pct') / scalePct0;
   if (!scaleBase || !(f > 0)) return;
   ['x', 'y', 'z'].forEach((a, k) => ($('scale-' + a).value = (scaleBase[k] * f).toFixed(2)));
 });
 
 function applyScale(factors) {
   if (!state.mesh) return;
+  if (factors.some((f) => !(f > 0) || !isFinite(f))) {
+    toast('Type a size above 0 (mm) or a percentage, e.g. 1000');
+    return;
+  }
   const { target } = scaleTargetBounds();
   const com = state.mesh.centerOfMass(target.faces);
-  if (!com || factors.some((f) => !(f > 0)) || factors.every((f) => Math.abs(f - 1) < 1e-9)) return;
+  if (!com || factors.every((f) => Math.abs(f - 1) < 1e-9)) return;
   state.moving = false;
   transformBurst(() => state.mesh.scale(...factors, [com.center[0], com.center[1], com.minZ], target.vertices));
   state.moving = false;
   viewer.updatePlate();
   viewer.frame();
-  fillScale();
+  fillScale({ force: true });
   const s = scaleBase.map((v) => v.toFixed(1)).join(' × ');
-  toast(`Resized to ${s} mm`);
+  const pct = $('scale-pct-of').textContent === '% of original' ? ` (${$('scale-pct').value} % of the original)` : '';
+  toast(`Resized to ${s} mm${pct}`);
 }
 
 $('scale-apply').addEventListener('click', () => {
-  if (!scaleBase) return;
-  applyScale(['x', 'y', 'z'].map((a, k) => (scaleBase[k] ? +$('scale-' + a).value / scaleBase[k] : 1)));
+  if (!state.mesh) return;
+  if (!scaleBase) fillScale({ force: true });
+  // The size now, in case the model changed since the card was filled.
+  const now = scaleTargetBounds().size;
+  if (scaleEdited === 'pct') {
+    const f = (readNumber('scale-pct') / scalePct0) * (Math.max(...scaleBase) / Math.max(...now) || 1);
+    applyScale([f, f, f]);
+    return;
+  }
+  applyScale(['x', 'y', 'z'].map((a, k) => (now[k] ? readNumber('scale-' + a) / now[k] : 1)));
 });
 for (const id of ['scale-x', 'scale-y', 'scale-z', 'scale-pct']) {
   $(id).addEventListener('keydown', (e) => e.key === 'Enter' && $('scale-apply').click());

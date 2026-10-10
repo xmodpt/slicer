@@ -196,15 +196,16 @@
           <div class="card-body" data-card="scale">
             <p class="hint" id="scale-target"></p>
             <div class="size-grid">
-              <label><span class="ax x">X</span><input id="scale-x" type="number" step="0.1" min="0" /> mm</label>
-              <label><span class="ax y">Y</span><input id="scale-y" type="number" step="0.1" min="0" /> mm</label>
-              <label><span class="ax z">Z</span><input id="scale-z" type="number" step="0.1" min="0" /> mm</label>
+              <label><span class="ax x">X</span><input id="scale-x" type="text" inputmode="decimal" autocomplete="off" /> mm</label>
+              <label><span class="ax y">Y</span><input id="scale-y" type="text" inputmode="decimal" autocomplete="off" /> mm</label>
+              <label><span class="ax z">Z</span><input id="scale-z" type="text" inputmode="decimal" autocomplete="off" /> mm</label>
             </div>
-            <label class="field">Scale <input id="scale-pct" type="number" step="1" min="0" value="100" /> %</label>
+            <label class="field">Scale <input id="scale-pct" type="text" inputmode="decimal" autocomplete="off" value="100" /> <span id="scale-pct-of">%</span></label>
             <label class="check"><input id="scale-lock" type="checkbox" checked /> Keep proportions</label>
             <div class="row">
               <button data-scale="0.5" title="Half size">50%</button>
               <button data-scale="2" title="Double size">200%</button>
+              <button data-scale="10" title="Ten times bigger">1000%</button>
               <button data-scale="25.4" title="The file was made in inches and loaded tiny">inch → mm</button>
               <button data-scale="0.0393701" title="The file was made in mm but read as inches">mm → inch</button>
             </div>
@@ -249,6 +250,7 @@
             <div id="cut-done" class="done" hidden>
               <p id="cut-done-text"></p>
               <div class="row">
+                <button id="cut-apart" title="Move the halves apart along the cut so the pins and holes can be seen">Pull apart</button>
                 <button id="cut-arrange" class="primary" title="Lay each half on its best face and place them side by side">Arrange for printing</button>
                 <button id="cut-export" title="Download every part as STL in a ZIP">Download parts</button>
               </div>
