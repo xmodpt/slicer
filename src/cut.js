@@ -7,7 +7,7 @@
 //   - dowel: holes in both halves plus a separate dowel part, printed lying
 //     down (stronger than a pin printed upright);
 //   - none, when the area is too thin – glue only.
-// Holes are wider than their pins by `tolerance` (0.5 % by default) and a bit
+// Holes are wider than their pins by `tolerance` (0.2 mm by default) and a bit
 // deeper, so printed parts fit together without force.
 
 import { ShapeUtils, Vector2 } from 'three';
@@ -26,8 +26,9 @@ const norm = (a) => {
 //   pins: 'auto' | count per cut area
 //   diameter, length: connector size in model units (0 = automatic);
 //     length is how far a pin sticks out (a dowel is twice as long)
-//   tolerance: how much wider holes are than pins, in percent
+//   tolerance: how much wider a hole's diameter is than its pin, in mm
 //   segments: roundness
+//   sizeScale: multiplies the automatic size (smaller → more connectors)
 //   manual: connector positions picked by the user (3D points on the plane)
 //     instead of automatic ones; each gets a verdict in result.manual
 
@@ -36,6 +37,29 @@ export function analyzeCut(mesh, plane, opts = {}) {
   const work = new EditableMesh(mesh.positions, mesh.indices);
   const ctx = prepare(work, plane);
   return plan(work, ctx, opts);
+}
+
+// Several connector choices for the same cut – the automatic one plus
+// bigger/fewer and smaller/more – for the user to pick from. Returns
+// [{ scale, result }] without duplicates (same count and sizes).
+export function connectorOptions(mesh, plane, opts = {}, scales = [1, 1.5, 0.7, 0.5, 0.35]) {
+  const work = new EditableMesh(mesh.positions, mesh.indices);
+  const ctx = prepare(work, plane);
+  const seen = new Set();
+  const out = [];
+  for (const scale of scales) {
+    const result = plan(work, ctx, { ...opts, sizeScale: scale });
+    const key = result.areas.map((a) => a.connectors.map((c) => c.kind + c.r.toFixed(3)).join(',')).join('|');
+    if (seen.has(key) || (scale !== 1 && !result.pins.length)) continue;
+    // Smaller choices stop at Ø2.5 – thinner pins snap too easily.
+    const smallest = Math.min(...result.pins.map((p) => p.diameter));
+    if (scale < 1 && out.length && smallest < Math.min(2.5, ...out[0].result.pins.map((p) => p.diameter))) continue;
+    // A smaller choice must give more connectors, a bigger one fewer or the same.
+    if (scale < 1 && out.length && result.pins.length <= out[out.length - 1].result.pins.length && out[out.length - 1].scale <= 1) continue;
+    seen.add(key);
+    out.push({ scale, result });
+  }
+  return out;
 }
 
 // Cuts, closes both halves and adds the planned connectors. Returns the plan
@@ -208,8 +232,8 @@ function chainLoops(list, point, size) {
 
 // Chooses connectors for each cut area.
 function plan(mesh, ctx, opts) {
-  const { type = 'auto', pins = 'auto', diameter = 0, length = 0, tolerance = 0.5 } = opts;
-  const tol = 1 + tolerance / 100;
+  const { type = 'auto', pins = 'auto', diameter = 0, length = 0, tolerance = 0.2, sizeScale = 1 } = opts;
+  const gap = Math.max(0, tolerance) / 2; // per side
   const lowerMask = ctx.upper.map((v) => (v ? 0 : 1));
   const result = { areas: [], pins: [], notes: [], dowelFaces: null };
   // Manually placed connectors, in plane coordinates, each with a verdict.
@@ -246,10 +270,11 @@ function plan(mesh, ctx, opts) {
     // Automatic size: half the thickness, but in proportion to the area –
     // Ø10 mm at most on ordinary prints, growing with big models (about 6 %
     // of the area's length) – rounded to a tidy size.
-    const autoR = Math.max(0.75, Math.min(R * 0.5, Math.max(5, long * 0.03)));
+    const baseR = Math.max(0.75, Math.min(R * 0.5, Math.max(5, long * 0.03)));
+    const autoR = Math.max(0.75, Math.min(R * (sizeScale > 1 ? 0.7 : 0.5), Math.max(5, long * 0.03) * sizeScale, R * 0.5 * sizeScale));
     const r = diameter > 0 ? diameter / 2 : autoR > 10 ? Math.floor(autoR) : Math.floor(autoR * 4) / 4;
     const wall = Math.max(0.6, r * 0.3);
-    const need = r * tol + wall;
+    const need = r + gap + wall;
     const fits = candidates.filter((q) => q.d >= need);
     let centers, picked = [];
     if (manual) {
@@ -263,7 +288,7 @@ function plan(mesh, ctx, opts) {
         const d = distanceToEdges(m.uv, edges);
         if (others.some((o) => inArea(m.uv, o))) m.reason = 'Another piece of the model overlaps here – the hole would be blocked.';
         else if (d < need)
-          m.reason = `Too close to the edge: ${Math.max(0, d - r * tol).toFixed(1)} mm of wall left, ${wall.toFixed(1)} mm needed – move it inwards or use a smaller Ø.`;
+          m.reason = `Too close to the edge: ${Math.max(0, d - r - gap).toFixed(1)} mm of wall left, ${wall.toFixed(1)} mm needed – move it inwards or use a smaller Ø.`;
         else if (centers.some((c) => Math.hypot(c[0] - m.uv[0], c[1] - m.uv[1]) < 2 * need)) m.reason = 'Too close to another connector – space them further apart.';
         else {
           centers.push(m.uv);
@@ -273,7 +298,7 @@ function plan(mesh, ctx, opts) {
       if (!manual.some((m) => m.area === index)) info.notes.push('No connector placed on this area.');
     } else if (!fits.length) {
       info.notes.push(
-        R < 0.75 * tol + 0.6
+        R < 0.75 + gap + 0.6
           ? `Too thin for connectors (thickest spot ${(2 * R).toFixed(1)} mm) – glue only.`
           : `A Ø${(2 * r).toFixed(1)} connector needs ${(2 * need).toFixed(1)} mm of solid material; the thickest spot is ${(2 * R).toFixed(1)} mm. Use a smaller Ø or Auto.`,
       );
@@ -284,21 +309,23 @@ function plan(mesh, ctx, opts) {
       // Automatic count: about one connector per (10 Ø/2)² of solid area –
       // long strips get several along their length, big faces a spread of
       // them – but no more than 8.
-      const byArea = solidArea / (10 * r) ** 2;
-      const want = pins === 'auto' ? Math.max(1, Math.min(8, Math.round(Math.max(byArea, long > 12 * r ? 2 : 1, long > 30 * r ? 3 : 1)))) : Number(pins);
+      const autoCount = (rr) => Math.max(1, Math.min(8, Math.round(Math.max(solidArea / (10 * rr) ** 2, long > 12 * rr ? 2 : 1, long > 30 * rr ? 3 : 1))));
+      // Smaller connectors (a scaled-down choice) come in larger numbers:
+      // about the same total strength.
+      const want = pins !== 'auto' ? Number(pins) : sizeScale < 1 ? Math.min(12, Math.max(autoCount(r), Math.round(autoCount(baseR) * (baseR / r) ** 2))) : autoCount(r);
       centers = choosePoints(fits, want, 2 * need);
-      if (centers.length < want) info.notes.push(`Room for ${centers.length} of ${want} connectors.`);
+      if (centers.length < want && pins !== 'auto') info.notes.push(`Room for ${centers.length} of ${want} connectors.`);
     }
 
     const L = length > 0 ? length : 3 * r; // pin length / depth per side for dowels
     const clearance = Math.max(L * 0.02, r * 0.1, 0.2);
-    const up = depthAvailable(mesh, ctx.upper, centers, r * tol + wall, ctx, 1);
-    const down = depthAvailable(mesh, lowerMask, centers, r * tol + wall, ctx, -1);
+    const up = depthAvailable(mesh, ctx.upper, centers, r + gap + wall, ctx, 1);
+    const down = depthAvailable(mesh, lowerMask, centers, r + gap + wall, ctx, -1);
 
     centers.forEach((center, i) => {
       // Usable depth on each side (the hole must keep a wall at its bottom).
-      const upRoom = (up[i] - wall - clearance) / tol;
-      const downRoom = (down[i] - wall - clearance) / tol;
+      const upRoom = up[i] - wall - clearance - gap;
+      const downRoom = down[i] - wall - clearance - gap;
       const pinLen = Math.min(L, upRoom);
       const dowelLen = Math.min(L, upRoom, downRoom);
       let kind = null, h = 0;
@@ -324,12 +351,12 @@ function plan(mesh, ctx, opts) {
         center3: ctx.O.map((o, k) => o + center[0] * ctx.U[k] + center[1] * ctx.V[k]),
         r,
         h,
-        holeR: r * tol,
-        holeDepth: h * tol + clearance,
+        holeR: r + gap,
+        holeDepth: h + clearance + gap,
       };
       info.connectors.push(conn);
       if (picked[i]) Object.assign(picked[i], { ok: true, reason: `Fits – ${kind} Ø${(2 * r).toFixed(1)} × ${(kind === 'dowel' ? 2 * h : h).toFixed(1)} mm.` });
-      result.pins.push({ kind, diameter: 2 * r, length: kind === 'dowel' ? 2 * h : h, holeDiameter: 2 * r * tol, holeDepth: conn.holeDepth });
+      result.pins.push({ kind, diameter: 2 * r, length: kind === 'dowel' ? 2 * h : h, holeDiameter: 2 * (r + gap), holeDepth: conn.holeDepth });
     });
   });
 

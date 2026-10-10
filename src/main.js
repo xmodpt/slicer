@@ -6,7 +6,7 @@ import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
-import { cutWithPins, analyzeCut } from './cut.js';
+import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1905,7 +1905,14 @@ function cutOptions() {
     length: +$('cut-len').value || 0,
     tolerance: Math.max(0, +$('cut-tol').value || 0),
     manual: manualPlacement() ? cut.manual.map(onCutPlane) : undefined,
+    sizeScale: choosingOptions() ? state.cutScale || 1 : 1,
   };
+}
+
+// With automatic size, count and placement, the analysis offers a few
+// connector choices (recommended, bigger/fewer, smaller/more) to pick from.
+function choosingOptions() {
+  return !manualPlacement() && $('cut-type').value !== 'none' && !(+$('cut-dia').value) && $('cut-pins').value === 'auto';
 }
 
 // A point moved straight onto the current cut plane.
@@ -1969,8 +1976,13 @@ const fmtMM = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 function connectorText(conns) {
   if (!conns.length) return 'no connectors';
   const pins = conns.filter((c) => c.kind === 'pin'), dowels = conns.filter((c) => c.kind === 'dowel');
+  // "3 pins Ø6 × 9", or with mixed sizes "5 pins Ø4–8".
+  const range = (vals) => {
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    return hi - lo < 0.05 ? fmtMM(lo) : `${fmtMM(lo)}–${fmtMM(hi)}`;
+  };
   const part = (list, name) =>
-    list.length ? `${list.length} ${name}${list.length > 1 ? 's' : ''} Ø${fmtMM(2 * list[0].r)} × ${fmtMM(list[0].kind === 'dowel' ? 2 * list[0].h : list[0].h)}` : '';
+    list.length ? `${list.length} ${name}${list.length > 1 ? 's' : ''} Ø${range(list.map((c) => 2 * c.r))} × ${range(list.map((c) => (c.kind === 'dowel' ? 2 * c.h : c.h)))}` : '';
   return [part(pins, 'pin'), part(dowels, 'dowel')].filter(Boolean).join(' + ');
 }
 
@@ -1995,9 +2007,14 @@ function scheduleCutAnalysis() {
 
 function runCutAnalysis() {
   const box = $('cut-analysis');
-  let result;
+  let result, options = null;
   try {
-    result = analyzeCut(state.mesh, cut, cutOptions());
+    if (choosingOptions()) {
+      options = connectorOptions(state.mesh, cut, cutOptions());
+      const pick = options.find((o) => o.scale === (state.cutScale || 1)) || options[0];
+      state.cutScale = pick.scale;
+      result = pick.result;
+    } else result = analyzeCut(state.mesh, cut, cutOptions());
   } catch (err) {
     box.innerHTML = '';
     const p = document.createElement('p');
@@ -2012,6 +2029,31 @@ function runCutAnalysis() {
   state.cutPlan = result;
   setCutStep(2);
   box.innerHTML = '';
+  if (options && options.length > 1) {
+    const list = document.createElement('div');
+    list.className = 'cut-options';
+    list.innerHTML = '<div class="sub-head">Choose the connectors</div>';
+    const rec = options[0].result;
+    // Biggest first; the recommended one is marked.
+    for (const o of [...options].sort((a, b) => b.scale - a.scale)) {
+      const conns = o.result.areas.flatMap((a) => a.connectors);
+      const lost = o.result.areas.some((a, i) => !a.connectors.length && rec.areas[i]?.connectors.length);
+      const b = document.createElement('button');
+      b.className = 'cut-option' + (o.scale === state.cutScale ? ' active' : '');
+      b.innerHTML = '<span class="dot"></span><span class="label"></span><span class="what"></span>';
+      const n = conns.length, n0 = rec.pins.length;
+      b.querySelector('.label').textContent =
+        o.scale === 1 ? 'Recommended' : o.scale > 1 ? (n < n0 ? 'Fewer, bigger' : 'Bigger') : n > n0 ? 'More, smaller' : 'Smaller';
+      b.querySelector('.what').textContent = connectorText(conns) + (lost ? ' · some areas glue only' : '');
+      b.title = 'Use these connectors – the preview and the cut follow your choice';
+      b.addEventListener('click', () => {
+        state.cutScale = o.scale;
+        runCutAnalysis();
+      });
+      list.append(b);
+    }
+    box.append(list);
+  }
   const areas = result.areas;
   const shown = areas.slice(0, 8);
   shown.forEach((a, i) => {
@@ -2105,7 +2147,7 @@ function doCut() {
   const tips = [
     'Arrange for printing lays each half on its best face and puts them side by side.',
     ...result.notes,
-    `Holes are ${(+$('cut-tol').value || 0).toFixed(1)} % wider than the pins: if the fit is too tight after printing, raise "Hole wider by" and cut again (Ctrl+Z first).`,
+    `Holes are ${(+$('cut-tol').value || 0).toFixed(2)} mm wider than the pins: if the fit is too tight after printing, raise "Hole wider by" (e.g. 0.3–0.4 mm) and cut again (Ctrl+Z first).`,
     'Glue with CA (super glue) or epoxy; dry-fit first.',
   ];
   const ul = $('cut-tips');

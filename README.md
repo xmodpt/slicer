@@ -233,11 +233,15 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
       (a pin on the lower half, a hole in the upper one – *Flip* swaps them),
       **Dowels** (holes in both halves plus separate dowel parts, printed lying
       down – stronger), or **None** (glue only). Size and count are automatic
-      or set by you; holes are 0.5 % wider than the pins (*Hole wider by*) and a
+      or set by you; holes are 0.2 mm wider than the pins (*Hole wider by*, in mm) and a
       bit deeper. Automatic size and count follow the cut area: up to Ø10 mm
       on ordinary prints, bigger and more of them on big models (up to 8 per
       area). Thin walls get small connectors; areas too thin get none,
       and holes never break through the other side.
+      **Choose the connectors:** with automatic size and count, the panel
+      lists a few choices for the cut – *Recommended*, *Bigger* (or fewer,
+      bigger), and *More, smaller* ones (down to Ø2.5) – each with its count
+      and size. Click one: the preview and the cut follow it.
       **Placement:** *Automatic* picks the spots; *Manual* lets you click on
       the plane where each connector goes (the cut outline is drawn in yellow).
       Each one is checked at once – green fits, red doesn't, and the list says

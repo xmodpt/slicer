@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditableMesh } from '../src/mesh.js';
-import { cutWithPins, analyzeCut } from '../src/cut.js';
+import { cutWithPins, analyzeCut, connectorOptions } from '../src/cut.js';
 import { volume, consistentlyClosed } from './helpers.js';
 
 const box = (x0, y0, z0, x1, y1, z1) => {
@@ -21,7 +21,7 @@ test('cut a block in half: two closed halves, pin on the lower, hole in the uppe
   assert.equal(r.pins.length, 1);
   const pin = r.pins[0];
   assert.ok(Math.abs(pin.diameter - 5) < 1e-9 && Math.abs(pin.length - 8) < 1e-9);
-  assert.ok(Math.abs(pin.holeDiameter - 5 * 1.005) < 1e-9, 'hole is 0.5 % wider');
+  assert.ok(Math.abs(pin.holeDiameter - 5.2) < 1e-9, 'hole is 0.2 mm wider');
   assert.ok(pin.holeDepth > pin.length);
 
   const ps = parts(m);
@@ -64,7 +64,7 @@ test('a hollow tube cut keeps its inner opening and still gets pins', () => {
   const t = EditableMesh.fromSoup(new Float32Array(tube));
   assert.ok(consistentlyClosed(t), 'fixture is closed');
   const before = volume(t);
-  const r = cutWithPins(t, { normal: [0, 0, 1], offset: 15 }, { pins: 2, diameter: 2, length: 4 });
+  const r = cutWithPins(t, { normal: [0, 0, 1], offset: 15 }, { pins: 2, diameter: 2, length: 4, tolerance: 0.01 });
   assert.equal(r.pins.length, 2);
   for (const p of parts(t)) assert.ok(consistentlyClosed(p));
   // Cut faces are rings: the tube stays hollow, total volume ≈ before (pins vs holes).
@@ -214,4 +214,24 @@ test('automatic connectors grow with big models', () => {
   const s = cutWithPins(small, { normal: [0, 0, 1], offset: 20 }, {});
   assert.equal(s.pins.length, 1);
   assert.equal(s.pins[0].diameter, 10);
+});
+
+test('connector choices: recommended, bigger, and smaller-but-more', () => {
+  const m = mesh(box(0, 0, 0, 60, 60, 120));
+  const plane = { normal: [0, 0, 1], offset: 60 };
+  const opts = connectorOptions(m, plane, {});
+  assert.equal(opts[0].scale, 1);
+  assert.ok(opts.length >= 3);
+  const rec = opts[0].result.pins;
+  const smaller = opts.filter((o) => o.scale < 1);
+  assert.ok(smaller.length >= 2);
+  for (const o of smaller) {
+    assert.ok(o.result.pins.length > rec.length, 'more connectors');
+    assert.ok(o.result.pins[0].diameter < rec[0].diameter, 'smaller');
+  }
+  // Cutting with a choice builds exactly that plan.
+  const pick = smaller[0];
+  const r = cutWithPins(m, plane, { sizeScale: pick.scale });
+  assert.equal(r.pins.length, pick.result.pins.length);
+  assert.equal(r.pins[0].diameter, pick.result.pins[0].diameter);
 });

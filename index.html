@@ -274,7 +274,7 @@
             </div>
             <label class="field" id="cut-pins-row">Per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
             <label class="field">Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" title="0 = automatic" /> Length <input id="cut-len" type="number" min="0" step="0.5" value="0" title="0 = automatic" /></label>
-            <label class="field">Hole wider by <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> %</label>
+            <label class="field" title="How much wider each hole is than its pin (on the diameter). 0.2 mm suits most FDM printers; raise it if the fit is too tight.">Hole wider by <input id="cut-tol" type="number" min="0" step="0.05" value="0.2" /> mm</label>
             <div id="cut-analysis" class="analysis"></div>
 
             <div class="row">
