@@ -9,8 +9,9 @@ import * as THREE from 'three';
 //   view size follows the same `distance` so switching keeps the framing.
 //
 // `buttons` maps mouse buttons (0 left, 1 middle, 2 right) to 'rotate', 'pan',
-// 'rotate-drag' (a click is left to the tools, a drag rotates) or null (left
-// alone for the selection tools). The back/forward side buttons zoom.
+// 'rotate-drag' (a click is left to the tools, a drag rotates), null (left
+// alone for the selection tools) or a function of the event returning one of
+// those. The back/forward side buttons zoom.
 export class CameraControls extends THREE.EventDispatcher {
   constructor(domElement, perspective, orthographic) {
     super();
@@ -165,6 +166,7 @@ export class CameraControls extends THREE.EventDispatcher {
 
   _down(e) {
     let action = this.buttons[e.button];
+    if (typeof action === 'function') action = action(e); // decided per press
     if (action === 'rotate' && e.shiftKey) action = 'pan';
     if (!action || this._drag) return;
     if (action === 'rotate-drag') {

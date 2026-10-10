@@ -72,14 +72,16 @@ typically a few cents. Everything else in the app works without a key.
    `+`/`-` grow/shrink.
 
    **Navigation:** right-drag rotates – and so does left-drag with the click
-   tools (Object, Triangle, Part, Region; a plain click still selects).
+   tools (Object, Triangle, Part, Region, Lay flat, Cut; a plain click still
+   selects), and a left-drag that starts on empty space rotates the view in
+   every tool except Box and Block.
    Middle-drag or Shift+right-drag pans, the wheel zooms toward the cursor,
    the mouse side buttons zoom, double-click sets the rotation centre, hold
    Alt to rotate with the left button in any tool. The **navigation gizmo**
    (top right, like Blender's) shows the orientation: click an axis to look
    along it, drag the ball to rotate; below it are drag-to-zoom, drag-to-pan,
-   perspective/orthographic and plate-grid buttons. Press `?` for all
-   shortcuts. *Rotate: Free* tumbles in every
+   perspective/orthographic and plate-grid buttons. The *Shortcuts*
+   box under the `?` lists every key (× closes it, `?` brings it back). *Rotate: Free* tumbles in every
    direction; *Turntable* keeps Z up. The view buttons (Top, Front, Right…)
    look straight along an axis, and *Camera: Orthographic* removes
    perspective – together they give exact, axis-aligned Block cuts.
@@ -124,6 +126,17 @@ typically a few cents. Everything else in the app works without a key.
    turns so that face (with the flat area around it) rests on the plate.
    The whole model turns as one group; to turn only some parts, select them
    first and click a face on them.
+   **Cut with connector pins:** the *Cut* tool (`C`) cuts the model with a
+   plane – X, Y, Z, or *Face* (parallel to a face you click). Place it with the
+   slider/number or by clicking the model (a translucent plane shows where),
+   then press *Cut* or Enter. Both halves are closed with flat caps and get
+   cylindrical connectors to glue them together after printing: pins on the
+   lower half, matching holes in the upper half (*Flip side* swaps them). The
+   holes are 0.5 % wider than the pins by default (*Hole tolerance*) and a bit
+   deeper, so the parts slide together without force. Pin size, length and
+   count are automatic (pins go where the cut face has the most material) or
+   set by you; each separate cut area gets its own pins, and a pin is
+   shortened or left out if the hole would break through the other side.
 6. **Split into parts** (optional): select a region (e.g. with Block) and press
    *Split selection into new part* (`S`). The selection is detached from the
    rest and the cut faces on both sides are closed, so each part is a solid of
@@ -146,6 +159,7 @@ holes, parts and whether the mesh is watertight.
 - `server/ai.js` – server-side Claude request for *Ask AI* (hooked into the Vite
   server by `vite.config.js`).
 - `src/gizmo.js` – the navigation gizmo.
+- `src/cut.js` – plane cut with caps and connector pins/holes.
 - `src/controls.js` – camera navigation (free/turntable rotation, pan, zoom to cursor).
 - `src/zip.js` – minimal ZIP writer for the multi-part download.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only

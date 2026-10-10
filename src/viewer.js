@@ -198,6 +198,26 @@ export class Viewer {
     }
   }
 
+  // Translucent preview of a cut plane n·p = offset (null hides it).
+  setCutPlane(plane) {
+    if (!this.cutPlane) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x5cc8ff, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+      this.cutPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+      this.cutPlane.add(new THREE.LineSegments(new THREE.EdgesGeometry(this.cutPlane.geometry), new THREE.LineBasicMaterial({ color: 0x5cc8ff })));
+      this.scene.add(this.cutPlane);
+    }
+    this.cutPlane.visible = !!plane && !!this.geometry;
+    if (this.cutPlane.visible) {
+      const n = new THREE.Vector3(...plane.normal).normalize();
+      const sphere = this.geometry.boundingSphere;
+      const centre = sphere.center.clone().addScaledVector(n, plane.offset - n.dot(sphere.center));
+      this.cutPlane.position.copy(centre);
+      this.cutPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      this.cutPlane.scale.setScalar(sphere.radius * 2.4);
+    }
+    this.requestRender();
+  }
+
   // Grid on the XY plane through the origin, a bit larger than the model,
   // with red X and green Y axis lines.
   updatePlate() {

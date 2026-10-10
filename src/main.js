@@ -6,6 +6,7 @@ import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
+import { cutWithPins } from './cut.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -105,6 +106,7 @@ async function loadSoup(soup, name) {
   }
   await stage('Done', 1);
   updatePlacement();
+  if (state.tool === 'cut') setCut({ offset: null });
   updateButtons();
 }
 
@@ -332,6 +334,7 @@ function refresh({ frame = false } = {}) {
   viewer.setMesh(mesh, state.selection, { frame });
   ANALYSIS_STEPS.forEach(runStep);
   updatePlacement();
+  if (state.tool === 'cut') setCut({});
   updateButtons();
 }
 
@@ -827,6 +830,8 @@ let orbitOverride = false; // Alt held
 
 function setTool(tool) {
   state.tool = tool;
+  if (tool === 'cut' && state.mesh) setCut({});
+  else viewer.setCutPlane(null);
   setHoverObjects([]);
   for (const b of document.querySelectorAll('#tools button')) b.classList.toggle('active', b.dataset.tool === tool);
   for (const o of document.querySelectorAll('.option[data-for]')) o.classList.toggle('shown', o.dataset.for === tool);
@@ -836,13 +841,21 @@ function setTool(tool) {
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
   // Click tools: a click selects, a left-drag rotates (as in slicers).
-  const clickTool = ['object', 'click', 'part', 'region', 'layflat'].includes(state.tool);
+  const clickTool = ['object', 'click', 'part', 'region', 'layflat', 'cut'].includes(state.tool);
+  // Tools that drag on the model (Rotate, Brush): a drag that starts on empty
+  // space rotates the view instead. Box and Block need empty space for their
+  // rectangle.
+  const onModel = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return viewer.faceAt(e.clientX - r.left, e.clientY - r.top) >= 0;
+  };
+  const dragOnModelTool = ['rotate', 'brush'].includes(state.tool);
   viewer.controls.buttons = {
-    0: orbit ? 'rotate' : clickTool ? 'rotate-drag' : null,
+    0: orbit ? 'rotate' : clickTool ? 'rotate-drag' : dragOnModelTool ? (e) => (onModel(e) ? null : 'rotate') : null,
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
-  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', rotate: 'ew-resize' };
+  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize' };
   view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
@@ -879,6 +892,7 @@ function moveBrushCursor(p) {
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || !state.mesh || state.tool === 'orbit' || orbitOverride) return;
+  if (viewer.controls.dragging) return; // the view took this drag
   const p = localPos(e);
   canvas.setPointerCapture(e.pointerId);
   drag = { start: p, mode: modeFor(e, state.tool === 'brush' ? 'add' : 'replace'), moved: false };
@@ -955,6 +969,10 @@ canvas.addEventListener('pointerup', (e) => {
   }
   if (tool === 'layflat') {
     layFlatAt(face);
+    return;
+  }
+  if (tool === 'cut') {
+    cutClick(face, p);
     return;
   }
   if (tool === 'click') {
@@ -1157,8 +1175,111 @@ for (const b of document.querySelectorAll('#joystick [data-angle]')) {
 $('lay-flat').addEventListener('click', () => setTool('layflat'));
 $('move-center').addEventListener('click', () => placeTarget({ center: true, drop: true }));
 $('move-drop').addEventListener('click', () => placeTarget({ center: false, drop: true }));
-$('help-open').addEventListener('click', () => ($('help').hidden = false));
-$('help-close').addEventListener('click', () => ($('help').hidden = true));
+// Shortcuts box under the "?" – open by default, remembers being closed.
+function showHelp(show) {
+  $('help').hidden = !show;
+  try {
+    localStorage.setItem('help-hidden', show ? '0' : '1');
+  } catch {
+    // storage unavailable: just don't remember
+  }
+}
+$('help-open').addEventListener('click', () => showHelp($('help').hidden));
+$('help-close').addEventListener('click', () => showHelp(false));
+try {
+  showHelp(localStorage.getItem('help-hidden') !== '1');
+} catch {
+  showHelp(true);
+}
+
+// ---------------------------------------------------------------------------
+// Plane cut with connector pins
+
+const cut = { mode: 'z', normal: [0, 0, 1], offset: 0 };
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+
+// Range of positions along the cut normal that cross the model.
+function cutRange() {
+  const p = state.mesh.positions, n = cut.normal;
+  let lo = Infinity, hi = -Infinity;
+  for (let v = 0; v < p.length; v += 3) {
+    const d = n[0] * p[v] + n[1] * p[v + 1] + n[2] * p[v + 2];
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  return [lo, hi];
+}
+
+function setCut({ mode, normal, offset } = {}) {
+  if (!state.mesh) return;
+  if (mode) cut.mode = mode;
+  if (normal) cut.normal = normal;
+  const [lo, hi] = cutRange();
+  cut.offset = offset ?? (cut.offset > lo && cut.offset < hi ? cut.offset : (lo + hi) / 2);
+  const slider = $('cut-pos');
+  slider.min = lo;
+  slider.max = hi;
+  slider.step = (hi - lo) / 1000 || 0.01;
+  slider.value = cut.offset;
+  $('cut-pos-num').value = cut.offset.toFixed(2);
+  for (const b of document.querySelectorAll('[data-plane]')) b.classList.toggle('active', b.dataset.plane === cut.mode);
+  showCutPlane();
+}
+
+function showCutPlane() {
+  viewer.setCutPlane(state.tool === 'cut' && state.mesh ? cut : null);
+}
+
+function doCut() {
+  if (!state.mesh) return;
+  const opts = {
+    pins: $('cut-pins').value,
+    diameter: +$('cut-dia').value || 0,
+    length: +$('cut-len').value || 0,
+    tolerance: Math.max(0, +$('cut-tol').value || 0),
+  };
+  edit((mesh) => {
+    try {
+      const r = cutWithPins(mesh, cut, opts);
+      const pins = r.pins.length
+        ? `${r.pins.length} pin(s) Ø${r.pins[0].diameter.toFixed(2)} × ${r.pins[0].length.toFixed(1)}, holes Ø${r.pins[0].holeDiameter.toFixed(3)}`
+        : 'no pins';
+      const skipped = r.skipped.length ? ` – ${[...new Set(r.skipped)].join(' ')}` : '';
+      return `Cut into closed halves with ${pins}${skipped}`;
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  showCutPlane();
+}
+
+for (const b of document.querySelectorAll('[data-plane]')) {
+  b.addEventListener('click', () => {
+    const mode = b.dataset.plane;
+    if (mode === 'face') {
+      cut.mode = 'face';
+      for (const o of document.querySelectorAll('[data-plane]')) o.classList.toggle('active', o === b);
+      toast('Click a face of the model – the cut plane will be parallel to it');
+      return;
+    }
+    setCut({ mode, normal: AXES[mode], offset: null });
+  });
+}
+$('cut-pos').addEventListener('input', (e) => setCut({ offset: +e.target.value }));
+$('cut-pos-num').addEventListener('change', (e) => setCut({ offset: +e.target.value }));
+$('cut-flip').addEventListener('click', () => setCut({ normal: cut.normal.map((x) => -x), offset: -cut.offset }));
+$('cut-go').addEventListener('click', doCut);
+
+// Cut tool click: put the plane through the clicked point (Face mode: also
+// turn it parallel to the clicked face).
+function cutClick(face, p) {
+  const point = viewer.pointAt(p.x, p.y);
+  if (!point) return;
+  const pt = point.toArray();
+  let normal = cut.normal;
+  if (cut.mode === 'face') normal = state.mesh.flatAreaNormal(face, 2).normal.map((x) => -x);
+  setCut({ normal, offset: normal[0] * pt[0] + normal[1] * pt[1] + normal[2] * pt[2] });
+}
 
 // ---------------------------------------------------------------------------
 // Keyboard
@@ -1216,12 +1337,15 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     deleteSelected();
   } else if (e.key === 'Escape') {
-    if (!$('help').hidden) $('help').hidden = true;
-    else runSelection('none');
+    runSelection('none');
   } else if (e.key === '+' || e.key === '=') {
     runSelection('grow');
   } else if (e.key === '-') {
     runSelection('shrink');
+  } else if (e.key.toLowerCase() === 'c') {
+    setTool('cut');
+  } else if (e.key === 'Enter' && state.tool === 'cut') {
+    doCut();
   } else if (e.key.toLowerCase() === 's') {
     splitSelection();
   } else if (e.key.toLowerCase() === 'h') {
@@ -1229,7 +1353,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() === 'f') {
     viewer.frame();
   } else if (e.key === '?') {
-    $('help').hidden = !$('help').hidden;
+    showHelp($('help').hidden);
   } else if (toolKeys[e.key]) {
     setTool(toolKeys[e.key]);
   } else {

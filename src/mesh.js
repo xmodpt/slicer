@@ -633,7 +633,7 @@ export class EditableMesh {
       dup[v] = nv + extra.length / 3;
       extra.push(this.positions[v * 3], this.positions[v * 3 + 1], this.positions[v * 3 + 2]);
     }
-    if (!extra.length) return { detached: 0, closed: 0 };
+    if (!extra.length) return { detached: 0, closed: 0, dup };
 
     const indices = ind.slice();
     for (let t = 0; t < this.triangleCount; t++) {
@@ -654,7 +654,7 @@ export class EditableMesh {
       for (let v = 0; v < nv; v++) if (dup[v] >= 0) seam[v] = seam[dup[v]] = 1;
       closed = this.fillHoles({ onlyVertices: seam }).filled;
     }
-    return { detached: extra.length / 3, closed };
+    return { detached: extra.length / 3, closed, dup };
   }
 
   // Compact copy of the selected triangles (mask), e.g. for exporting one part.

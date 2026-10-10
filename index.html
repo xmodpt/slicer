@@ -35,14 +35,24 @@
           <button data-tool="region" title="Click to select a smooth/flat region (6)">Region</button>
           <button data-tool="rotate" title="Drag left/right to rotate the model on the plate; Shift snaps to 15° (9)">Rotate</button>
           <button data-tool="layflat" title="Click a face to lay the model flat on it (0)">Lay flat</button>
+          <button data-tool="cut" title="Cut the model with a plane, close both halves and add glue pins (C)">Cut</button>
         </div>
         <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
         <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
         <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
         <p class="option hint" data-for="rotate">Drag left/right on the view to spin the model (or a selected split-off part) around its centre on the plate. Hold Shift to snap to 15°. Q / E rotate by the step set on the move pad.</p>
         <p class="option hint" data-for="layflat">Click a face of the model: the whole model turns as one group so that face (and the flat area around it) lies on the plate. To turn only some parts, select them first and click a face on them.</p>
+        <div class="option cut-planes" data-for="cut">Plane
+          <button data-plane="x" title="Cut across X">X</button><button data-plane="y" title="Cut across Y">Y</button><button data-plane="z" class="active" title="Horizontal cut">Z</button><button data-plane="face" title="Parallel to a face you click">Face</button>
+        </div>
+        <label class="option" data-for="cut">At <input id="cut-pos" type="range" step="any" /> <input id="cut-pos-num" type="number" step="0.1" /> mm</label>
+        <label class="option" data-for="cut">Pins per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+        <label class="option" data-for="cut">Pin Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" /> length <input id="cut-len" type="number" min="0" step="0.5" value="0" /> mm</label>
+        <label class="option" data-for="cut">Hole tolerance <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> % wider</label>
+        <div class="option row" data-for="cut"><button id="cut-flip" title="Swap which half gets the pins and which the holes">Flip side</button><button id="cut-go" class="primary" title="Enter">Cut</button></div>
+        <p class="option hint" data-for="cut">Pick a plane, then click the model or use the slider to place it (0 = automatic pin size). The cut closes both halves and adds pins on the lower half and matching holes in the upper half – Flip swaps them. Then move the halves apart and export them as separate parts.</p>
         <p class="option hint" data-for="block">Drag a rectangle: the model is cut along its edges, all the way through, and the block inside is selected. Use a straight view (Top, Front…) for straight cuts, then <b>Split</b> it into its own part.</p>
-        <p class="hint">Shift = add · Ctrl = remove · left-drag (Object/Triangle/Part/Region) or right-drag rotates · middle-drag or Shift+right-drag pans · wheel zooms to the cursor · side buttons zoom · double-click sets the rotation centre · <b>?</b> all shortcuts</p>
+        <p class="hint">Shift = add · Ctrl = remove · left-drag on empty space (any tool but Box/Block), left-drag with Object/Triangle/Part/Region, or right-drag rotates the view · middle-drag or Shift+right-drag pans · wheel zooms to the cursor · side buttons zoom · double-click sets the rotation centre · <b>?</b> all shortcuts</p>
       </section>
 
       <section>
@@ -156,36 +166,64 @@
       </div>
       <button id="help-open" title="Keyboard shortcuts (?)">?</button>
       <div id="help" hidden>
-        <h3>Keyboard &amp; mouse</h3>
-        <div class="cols">
+        <div class="help-head">
+          <h3>Shortcuts</h3>
+          <button id="help-close" title="Close (Esc)">×</button>
+        </div>
+        <div class="help-body">
+          <h4>View</h4>
           <dl>
-            <dt>Left-drag</dt><dd>Rotate view (Object, Triangle, Part, Region tools – a click still selects)</dd>
-            <dt>Right-drag</dt><dd>Rotate view</dd>
+            <dt>Left-drag</dt><dd>Rotate (on empty space, or with the click tools)</dd>
+            <dt>Right-drag</dt><dd>Rotate</dd>
+            <dt>Middle / Shift+right-drag</dt><dd>Pan</dd>
+            <dt>Wheel</dt><dd>Zoom to the cursor</dd>
             <dt>Side buttons</dt><dd>Zoom out / in</dd>
-            <dt>Shift+right / middle-drag</dt><dd>Pan</dd>
-            <dt>Wheel</dt><dd>Zoom to cursor</dd>
-            <dt>Double-click</dt><dd>Set rotation centre</dd>
-            <dt>Alt + left-drag</dt><dd>Rotate with any tool</dd>
-            <dt>F</dt><dd>Frame model</dd>
+            <dt>Double-click</dt><dd>Set the rotation centre</dd>
+            <dt>Alt + left-drag</dt><dd>Rotate in any tool</dd>
+            <dt>F</dt><dd>Frame the model</dd>
           </dl>
+          <h4>Tools</h4>
           <dl>
-            <dt>← → ↑ ↓</dt><dd>Move model/part on the plate</dd>
+            <dt>1</dt><dd>Orbit</dd>
+            <dt>2</dt><dd>Triangle</dd>
+            <dt>3</dt><dd>Brush</dd>
+            <dt>4</dt><dd>Box</dd>
+            <dt>5</dt><dd>Part</dd>
+            <dt>6</dt><dd>Region</dd>
+            <dt>7</dt><dd>Object</dd>
+            <dt>8</dt><dd>Block</dd>
+            <dt>9</dt><dd>Rotate</dd>
+            <dt>0</dt><dd>Lay flat</dd>
+            <dt>C</dt><dd>Cut (Enter cuts)</dd>
+          </dl>
+          <h4>Selection</h4>
+          <dl>
+            <dt>Shift + click</dt><dd>Add to selection</dd>
+            <dt>Ctrl + click</dt><dd>Remove from selection</dd>
+            <dt>Ctrl+A</dt><dd>Select all</dd>
+            <dt>Ctrl+I</dt><dd>Invert</dd>
+            <dt>Esc</dt><dd>Select none</dd>
+            <dt>+ / −</dt><dd>Grow / shrink</dd>
+          </dl>
+          <h4>Edit</h4>
+          <dl>
+            <dt>Delete</dt><dd>Delete selection</dd>
+            <dt>S</dt><dd>Split selection into a part</dd>
+            <dt>H</dt><dd>Close holes</dd>
+            <dt>Ctrl+Z</dt><dd>Undo</dd>
+            <dt>Ctrl+Y</dt><dd>Redo</dd>
+          </dl>
+          <h4>Move &amp; rotate</h4>
+          <dl>
+            <dt>← → ↑ ↓</dt><dd>Move on the plate (follows the view)</dd>
             <dt>PageUp / PageDown</dt><dd>Move up / down</dd>
             <dt>Shift + move</dt><dd>10× step</dd>
-            <dt>Home</dt><dd>Centre on plate</dd>
+            <dt>Home</dt><dd>Centre on the plate</dd>
             <dt>Q / E</dt><dd>Rotate on the plate (Shift = 2×)</dd>
-            <dt>Ctrl+Z / Ctrl+Y</dt><dd>Undo / redo</dd>
           </dl>
-          <dl>
-            <dt>1–9, 0</dt><dd>Orbit, Triangle, Brush, Box, Part, Region, Object, Block, Rotate, Lay flat</dd>
-            <dt>Shift / Ctrl + click</dt><dd>Add / remove from selection</dd>
-            <dt>Ctrl+A · Ctrl+I · Esc</dt><dd>All · invert · none</dd>
-            <dt>+ / −</dt><dd>Grow / shrink selection</dd>
-            <dt>Delete · S · H</dt><dd>Delete · split · close holes</dd>
-          </dl>
+          <p class="muted">With a separate part selected, moving and rotating apply to that part only.</p>
+          <dl><dt>?</dt><dd>Show / hide this box</dd></dl>
         </div>
-        <p class="muted">The arrow keys follow the view: → moves along whichever plate axis points most to the right on screen. With a part selected (after Split), only that part moves.</p>
-        <button id="help-close">Close</button>
       </div>
       <div id="toast"></div>
       <div id="fatal" hidden>
