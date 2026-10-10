@@ -1,0 +1,134 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { EditableMesh } from '../src/mesh.js';
+import { parseSTL, writeBinarySTL } from '../src/stl.js';
+import { cube, sphere, volume, consistentlyClosed } from './helpers.js';
+
+test('closed meshes report no holes', () => {
+  const s = cube().stats();
+  assert.equal(s.holes, 0);
+  assert.equal(s.watertight, true);
+  assert.equal(s.parts, 1);
+  assert.equal(sphere().stats().watertight, true);
+});
+
+test('deleting a cube face leaves one square hole that fills back watertight', () => {
+  const m = cube();
+  const mask = new Uint8Array(m.triangleCount);
+  mask[2] = mask[3] = 1; // top face
+  assert.equal(m.deleteFaces(mask), 2);
+  const { loops } = m.boundaryLoops();
+  assert.equal(loops.length, 1);
+  assert.equal(loops[0].length, 4);
+
+  const res = m.fillHoles();
+  assert.equal(res.filled, 1);
+  assert.equal(m.triangleCount, 12);
+  assert.ok(consistentlyClosed(m));
+  assert.ok(Math.abs(volume(m) - 1) < 1e-6);
+});
+
+test('cutting the top off a sphere and closing it gives a flat, outward cap', () => {
+  const m = sphere(16, 24);
+  const before = volume(m);
+  const p = m.positions;
+  const mask = new Uint8Array(m.triangleCount);
+  for (let t = 0; t < m.triangleCount; t++) {
+    const zs = [0, 1, 2].map((k) => p[m.indices[t * 3 + k] * 3 + 2]);
+    if (Math.min(...zs) > 0.5) mask[t] = 1;
+  }
+  m.deleteFaces(mask);
+  assert.equal(m.stats().holes, 1);
+  m.fillHoles();
+  const s = m.stats();
+  assert.equal(s.holes, 0);
+  assert.equal(s.watertight, true);
+  assert.ok(consistentlyClosed(m));
+  const after = volume(m);
+  assert.ok(after > 0 && after < before, `volume ${after} should be positive and below ${before}`);
+});
+
+test('multiple holes, and maxEdges limits which ones get closed', () => {
+  const m = sphere(16, 24);
+  const p = m.positions;
+  const mask = new Uint8Array(m.triangleCount);
+  for (let t = 0; t < m.triangleCount; t++) {
+    const xs = [0, 1, 2].map((k) => p[m.indices[t * 3 + k] * 3]);
+    const zs = [0, 1, 2].map((k) => p[m.indices[t * 3 + k] * 3 + 2]);
+    if (Math.min(...xs) > 0.9) mask[t] = 1; // small hole on the side
+    if (Math.max(...zs) < -0.3) mask[t] = 1; // big hole at the bottom
+  }
+  m.deleteFaces(mask);
+  const { loops } = m.boundaryLoops();
+  assert.equal(loops.length, 2);
+  const small = Math.min(...loops.map((l) => l.length));
+  const r = m.fillHoles({ maxEdges: small });
+  assert.equal(r.filled, 1);
+  assert.equal(r.skipped, 1);
+  assert.equal(m.stats().holes, 1);
+  m.fillHoles();
+  assert.ok(consistentlyClosed(m));
+});
+
+test('non-planar holes still close consistently', () => {
+  // Remove a diagonal band so the hole rim is a saddle-shaped curve.
+  const m = sphere(20, 32);
+  const p = m.positions;
+  const mask = new Uint8Array(m.triangleCount);
+  for (let t = 0; t < m.triangleCount; t++) {
+    let x = 0, z = 0;
+    for (let k = 0; k < 3; k++) { x += p[m.indices[t * 3 + k] * 3]; z += p[m.indices[t * 3 + k] * 3 + 2]; }
+    if (x / 3 + z / 3 > 0.6) mask[t] = 1;
+  }
+  m.deleteFaces(mask);
+  m.fillHoles();
+  assert.ok(consistentlyClosed(m));
+  assert.ok(volume(m) > 0);
+});
+
+test('connected parts and selection helpers', () => {
+  const a = cube().toSoup();
+  const b = cube().toSoup().map((v, i) => (i % 3 === 0 ? v + 3 : v));
+  const soup = new Float32Array(a.length + b.length);
+  soup.set(a); soup.set(b, a.length);
+  const m = EditableMesh.fromSoup(soup);
+  assert.equal(m.vertexCount, 16);
+  assert.equal(m.stats().parts, 2);
+
+  const mask = new Uint8Array(m.triangleCount);
+  m.selectConnected([0], mask);
+  assert.equal(mask.reduce((s, v) => s + v, 0), 12);
+
+  const flat = new Uint8Array(m.triangleCount);
+  m.selectSmoothRegion(0, 10, flat);
+  assert.equal(flat.reduce((s, v) => s + v, 0), 2); // one square side
+
+  m.growSelection(flat);
+  assert.ok(flat.reduce((s, v) => s + v, 0) > 2);
+  const one = new Uint8Array(m.triangleCount);
+  one[0] = 1;
+  m.shrinkSelection(one);
+  assert.equal(one.reduce((s, v) => s + v, 0), 0);
+});
+
+test('STL binary round trip and ASCII parsing', () => {
+  const m = sphere(8, 12);
+  const buf = writeBinarySTL(m.positions, m.indices);
+  const soup = parseSTL(buf);
+  const back = EditableMesh.fromSoup(soup);
+  assert.equal(back.triangleCount, m.triangleCount);
+  assert.equal(back.vertexCount, m.vertexCount);
+  assert.equal(back.stats().watertight, true);
+
+  const ascii = `solid t
+facet normal 0 0 1
+ outer loop
+  vertex 0 0 0
+  vertex 1 0 0
+  vertex 0 1 0
+ endloop
+endfacet
+endsolid t`;
+  const tri = parseSTL(new TextEncoder().encode(ascii).buffer);
+  assert.deepEqual([...tri], [0, 0, 0, 1, 0, 0, 0, 1, 0]);
+});

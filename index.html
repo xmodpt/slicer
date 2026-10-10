@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>STL Mesh Editor</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <aside id="panel">
+      <h1>STL Mesh Editor</h1>
+
+      <section>
+        <h2>File</h2>
+        <div class="row">
+          <label class="button primary" for="file-input">Open STL…</label>
+          <input id="file-input" type="file" accept=".stl" hidden />
+          <button id="sample">Sample</button>
+        </div>
+        <button id="export" class="wide" disabled>Export STL</button>
+        <div id="file-name" class="muted">No file loaded – drop an .stl anywhere.</div>
+      </section>
+
+      <section>
+        <h2>Select tool</h2>
+        <div class="tools" id="tools">
+          <button data-tool="orbit" title="Rotate the view with the left mouse button (1)">Orbit</button>
+          <button data-tool="click" title="Click triangles (2)">Triangle</button>
+          <button data-tool="brush" title="Paint over visible triangles (3)">Brush</button>
+          <button data-tool="box" title="Drag a rectangle (4)">Box</button>
+          <button data-tool="part" title="Click to select a whole connected part (5)">Part</button>
+          <button data-tool="region" title="Click to select a smooth/flat region (6)">Region</button>
+        </div>
+        <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
+        <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
+        <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
+        <p class="hint">Shift = add · Ctrl = remove · right-drag rotates · middle-drag pans · wheel zooms</p>
+      </section>
+
+      <section>
+        <h2>Selection</h2>
+        <div class="row">
+          <button id="sel-all" title="Ctrl+A">All</button>
+          <button id="sel-none" title="Esc">None</button>
+          <button id="sel-invert" title="Ctrl+I">Invert</button>
+        </div>
+        <div class="row">
+          <button id="sel-grow" title="+">Grow</button>
+          <button id="sel-shrink" title="-">Shrink</button>
+        </div>
+        <button id="delete" class="wide danger" disabled title="Delete">Delete selected</button>
+      </section>
+
+      <section>
+        <h2>Close model</h2>
+        <label class="option check"><input id="limit-holes" type="checkbox" /> Only holes up to <input id="max-edges" type="number" min="3" value="100" /> edges</label>
+        <button id="fill" class="wide primary" disabled title="H">Close holes</button>
+      </section>
+
+      <section>
+        <h2>View</h2>
+        <label class="option check"><input id="show-boundary" type="checkbox" checked /> Highlight hole edges</label>
+        <label class="option check"><input id="show-wire" type="checkbox" /> Wireframe</label>
+        <div class="row">
+          <button id="frame" title="F">Frame model</button>
+          <button id="undo" title="Ctrl+Z" disabled>Undo</button>
+          <button id="redo" title="Ctrl+Y" disabled>Redo</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Model</h2>
+        <dl id="stats"></dl>
+      </section>
+    </aside>
+
+    <main id="view">
+      <div id="drop-hint">Open or drop an STL file to start</div>
+      <div id="brush-cursor"></div>
+      <div id="box-rect"></div>
+      <div id="busy">Working…</div>
+      <div id="toast"></div>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

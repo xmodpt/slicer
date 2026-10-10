@@ -1,0 +1,274 @@
+:root {
+  --bg: #15171c;
+  --panel: #20232b;
+  --line: #31353f;
+  --text: #e4e7ee;
+  --muted: #8e95a3;
+  --accent: #ff7a1a;
+  --primary: #3d7eff;
+  --danger: #e5484d;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+body {
+  display: flex;
+  overflow: hidden;
+}
+
+#panel {
+  width: 270px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 14px;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+section {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+button,
+.button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #2a2e38;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+  flex: 1;
+}
+
+button:hover:not(:disabled),
+.button:hover {
+  background: #343946;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary,
+.button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+button.wide {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tools {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tools button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  color: var(--muted);
+}
+
+.option input[type='range'] {
+  flex: 1;
+}
+
+.option input[type='number'] {
+  width: 64px;
+  background: #15171c;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.option.check {
+  color: var(--text);
+}
+
+.option[data-for] {
+  display: none;
+}
+
+.option[data-for].shown {
+  display: flex;
+}
+
+.hint,
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0 0;
+  word-break: break-all;
+}
+
+#stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+}
+
+#stats dt {
+  color: var(--muted);
+}
+
+#stats dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.good {
+  color: #46c97a;
+}
+
+.bad {
+  color: #ff6b70;
+}
+
+#view {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+#view canvas {
+  display: block;
+  touch-action: none;
+}
+
+#drop-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+body.dragging #view::after {
+  content: 'Drop STL to open';
+  position: absolute;
+  inset: 12px;
+  border: 2px dashed var(--primary);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: rgba(61, 126, 255, 0.08);
+  pointer-events: none;
+}
+
+#brush-cursor {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  pointer-events: none;
+  display: none;
+  transform: translate(-50%, -50%);
+}
+
+#box-rect {
+  position: absolute;
+  border: 1px dashed var(--accent);
+  background: rgba(255, 122, 26, 0.12);
+  pointer-events: none;
+  display: none;
+}
+
+#busy {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 6px 14px;
+  border-radius: 20px;
+  display: none;
+}
+
+#toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px 16px;
+  border-radius: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+#toast.show {
+  opacity: 1;
+}
+
+@media (max-width: 700px) {
+  body {
+    flex-direction: column-reverse;
+  }
+  #panel {
+    width: 100%;
+    height: 45%;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+}
