@@ -1,6 +1,6 @@
 # Builds the Windows portable app (one .exe, nothing to install).
-# - Publish a GitHub Release (Releases → Draft a new release, tag v1.0.0), or
-#   push a version tag: the .exe is attached to that release.
+# - Publish a GitHub Release (Releases → Draft a new release, tag v1.0.0):
+#   the .exe is attached to that release.
 # - Or run it by hand (Actions → Windows app → Run workflow): the .exe is
 #   kept as a download on the run's page.
 name: Windows app
@@ -8,8 +8,6 @@ name: Windows app
 on:
   release:
     types: [published]
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

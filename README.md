@@ -30,7 +30,7 @@ npm run desktop          # or just run it as a desktop app
 attaches it to a release. On GitHub: *Releases → Draft a new release* →
 *Choose a tag*: type `v1.0.0` (create it on the branch with this code) →
 *Publish release*. A few minutes later the .exe appears under the release's
-*Assets*. (Pushing a `v*` tag does the same.)
+*Assets*.
 
 ## Run
 
