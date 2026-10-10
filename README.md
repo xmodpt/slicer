@@ -234,7 +234,9 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
       **Dowels** (holes in both halves plus separate dowel parts, printed lying
       down – stronger), or **None** (glue only). Size and count are automatic
       or set by you; holes are 0.5 % wider than the pins (*Hole wider by*) and a
-      bit deeper. Thin walls get small connectors; areas too thin get none,
+      bit deeper. Automatic size and count follow the cut area: up to Ø10 mm
+      on ordinary prints, bigger and more of them on big models (up to 8 per
+      area). Thin walls get small connectors; areas too thin get none,
       and holes never break through the other side.
       **Placement:** *Automatic* picks the spots; *Manual* lets you click on
       the plane where each connector goes (the cut outline is drawn in yellow).

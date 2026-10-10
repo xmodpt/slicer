@@ -242,7 +242,12 @@ function plan(mesh, ctx, opts) {
     const candidates = findCandidates(area, edges).filter((q) => !others.some((o) => inArea(q.q, o)));
     const R = candidates.length ? Math.max(...candidates.map((q) => q.d)) : 0; // half the thickest spot
     info.thickness = 2 * R;
-    const r = diameter > 0 ? diameter / 2 : Math.min(5, Math.max(0.75, Math.floor(R * 0.5 * 4) / 4));
+    const long = Math.max(w, h);
+    // Automatic size: half the thickness, but in proportion to the area –
+    // Ø10 mm at most on ordinary prints, growing with big models (about 6 %
+    // of the area's length) – rounded to a tidy size.
+    const autoR = Math.max(0.75, Math.min(R * 0.5, Math.max(5, long * 0.03)));
+    const r = diameter > 0 ? diameter / 2 : autoR > 10 ? Math.floor(autoR) : Math.floor(autoR * 4) / 4;
     const wall = Math.max(0.6, r * 0.3);
     const need = r * tol + wall;
     const fits = candidates.filter((q) => q.d >= need);
@@ -276,8 +281,11 @@ function plan(mesh, ctx, opts) {
     }
 
     if (!manual) {
-      const long = Math.max(w, h);
-      const want = pins === 'auto' ? (long > 30 * r ? 3 : long > 12 * r ? 2 : 1) : Number(pins);
+      // Automatic count: about one connector per (10 Ø/2)² of solid area –
+      // long strips get several along their length, big faces a spread of
+      // them – but no more than 8.
+      const byArea = solidArea / (10 * r) ** 2;
+      const want = pins === 'auto' ? Math.max(1, Math.min(8, Math.round(Math.max(byArea, long > 12 * r ? 2 : 1, long > 30 * r ? 3 : 1)))) : Number(pins);
       centers = choosePoints(fits, want, 2 * need);
       if (centers.length < want) info.notes.push(`Room for ${centers.length} of ${want} connectors.`);
     }

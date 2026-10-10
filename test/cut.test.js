@@ -202,3 +202,16 @@ test('manual connectors: placed where asked, each checked', () => {
   assert.deepEqual(c.sort((p, q) => p[0] - q[0]), [[15, 10, 20], [45, 10, 20]]);
   for (const p of parts(m)) assert.ok(consistentlyClosed(p));
 });
+
+test('automatic connectors grow with big models', () => {
+  // A 10 m wall cut lengthwise: the pins are in proportion, and there are more.
+  const big = mesh(box(0, 0, 0, 6177, 789, 10000));
+  const r = cutWithPins(big, { normal: [0, 1, 0], offset: 300 }, {});
+  assert.ok(r.pins.length >= 4, `${r.pins.length} connectors`);
+  assert.ok(r.pins[0].diameter > 100, `Ø${r.pins[0].diameter}`);
+  // An ordinary print keeps ordinary pins.
+  const small = mesh(box(0, 0, 0, 30, 30, 40));
+  const s = cutWithPins(small, { normal: [0, 0, 1], offset: 20 }, {});
+  assert.equal(s.pins.length, 1);
+  assert.equal(s.pins[0].diameter, 10);
+});
