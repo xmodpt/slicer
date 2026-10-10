@@ -7,6 +7,7 @@ import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
+import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -605,30 +606,9 @@ const ANALYSIS_STEPS = [
   { label: 'Looking for floating parts…', run: () => checkFloating() },
 ];
 
-// Floating parts: separate pieces that neither rest on the plate (the lowest
-// point of the model) nor touch a piece that does – directly or through
-// others. They would print in mid-air. Touching is judged by bounding boxes,
-// so only clearly separate pieces are reported.
+// Floating parts (see floating.js).
 function findFloating() {
-  const parts = state.parts || [];
-  if (parts.length < 2 || parts.length > 3000) return [];
-  const boxes = parts.map((p) => state.mesh.boundsOfFaces(p.faces));
-  const floor = Math.min(...boxes.map((b) => b.min[2]));
-  const { min, max } = state.mesh.bounds();
-  const eps = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1e-3;
-  const touch = (a, b) => [0, 1, 2].every((k) => a.min[k] <= b.max[k] + eps && b.min[k] <= a.max[k] + eps);
-  const supported = boxes.map((b) => b.min[2] <= floor + eps);
-  const queue = boxes.map((_, i) => i).filter((i) => supported[i]);
-  while (queue.length) {
-    const i = queue.pop();
-    boxes.forEach((b, j) => {
-      if (!supported[j] && touch(boxes[i], b)) {
-        supported[j] = true;
-        queue.push(j);
-      }
-    });
-  }
-  return parts.filter((_, i) => !supported[i]);
+  return state.mesh ? findFloatingParts(state.mesh, state.parts || []) : [];
 }
 
 function checkFloating() {

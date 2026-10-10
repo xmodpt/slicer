@@ -271,8 +271,9 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
 rest on the plate and don't touch anything that does (directly or through
 other pieces) are reported in the Objects panel and tagged *floating* in the
 tree – they would print in mid-air. *Select them* / *Delete them* deal with
-them in one click; touching is judged by bounding boxes, so only clearly
-separate pieces are reported.
+them in one click. Touching is judged on the surfaces themselves (to
+about 1/400 of the model's size), so a loose piece is found even right next
+to a tilted wall; pieces enclosed inside the solid don't count.
 
 `Ctrl+Z` / `Ctrl+Y` undo and redo. The *Model* panel shows triangle count,
 holes, parts and whether the mesh is watertight.
