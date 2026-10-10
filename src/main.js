@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { EditableMesh } from './mesh.js';
 import { parseSTL, writeBinarySTL } from './stl.js';
 import { Viewer } from './viewer.js';
+import { segmentObjects } from './segment.js';
+import { cakeWithCandles } from './samples.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -11,7 +13,9 @@ const state = {
   mesh: null,
   selection: new Uint8Array(0),
   fileName: 'model.stl',
-  tool: 'brush',
+  tool: 'object',
+  seg: null, // detected objects, see segment.js
+  objectColors: [],
   undo: [],
   redo: [],
 };
@@ -56,9 +60,7 @@ $('file-input').addEventListener('change', (e) => {
 
 $('sample').addEventListener('click', () =>
   busy(() => {
-    const g = new THREE.TorusKnotGeometry(10, 3.2, 160, 24).toNonIndexed();
-    g.rotateX(Math.PI / 2);
-    loadSoup(g.getAttribute('position').array, 'torus-knot.stl');
+    loadSoup(cakeWithCandles(), 'cake-with-candles.stl');
   }),
 );
 
@@ -153,6 +155,7 @@ function refresh({ frame = false } = {}) {
   const { mesh } = state;
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame });
+  analyzeObjects();
   updateStats();
   updateButtons();
 }
@@ -194,6 +197,80 @@ function updateButtons() {
   const el = $('sel-count');
   if (el) el.textContent = selected.toLocaleString();
 }
+
+// ---------------------------------------------------------------------------
+// Detected objects
+
+const MAX_LISTED = 40;
+const OBJECT_PALETTE = [0x6fa8ff, 0x7bd88f, 0xd78fe8, 0xf2d464, 0x5fd3d0, 0xff8fa3, 0xa3a0ff, 0xb7e06a, 0x8fc7ff, 0xe6a4d8];
+
+function analyzeObjects() {
+  const { mesh } = state;
+  state.seg = segmentObjects(mesh, { concaveAngle: +$('obj-angle').value });
+  state.objectColors = state.seg.objects.map((o, i) =>
+    // The main body keeps the model colour; the rest cycle through a palette
+    // that avoids the orange used for the selection.
+    new THREE.Color(i === 0 ? 0xb9c0cc : OBJECT_PALETTE[(i - 1) % OBJECT_PALETTE.length]),
+  );
+  applyObjectColors();
+  renderObjectList();
+}
+
+function applyObjectColors() {
+  viewer.setObjects(state.seg.objectOf, $('obj-colors').checked ? state.objectColors : null);
+  viewer.setSelection(state.selection);
+}
+
+function renderObjectList() {
+  const list = $('object-list');
+  list.innerHTML = '';
+  const { objects } = state.seg;
+  const note = (text) => {
+    const li = document.createElement('li');
+    li.className = 'note';
+    li.textContent = text;
+    list.append(li);
+  };
+  if (objects.length === 1) {
+    note('Only one object found. Lower the crease angle to split the model further.');
+    return;
+  }
+  for (const o of objects.slice(0, MAX_LISTED)) {
+    const li = document.createElement('li');
+    li.title = 'Click to select (Shift adds, Ctrl removes)';
+    const pct = o.share * 100;
+    li.innerHTML = `<span class="swatch"></span><span class="name"></span>
+      <span class="meta">${o.triangles.toLocaleString()} tris · ${pct < 0.1 ? '<0.1' : pct.toFixed(1)}%</span>
+      <button title="Delete this object">✕</button>`;
+    li.querySelector('.swatch').style.background = '#' + state.objectColors[o.id].getHexString();
+    li.querySelector('.name').textContent = o.id === 0 ? 'Main body' : `Object ${o.id}`;
+    li.addEventListener('mouseenter', () => setHoverObject(o.id));
+    li.addEventListener('mouseleave', () => setHoverObject(-1));
+    li.addEventListener('click', (e) => selectObject(o.id, modeFor(e, 'replace')));
+    li.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectObject(o.id, 'replace');
+      deleteSelected();
+    });
+    list.append(li);
+  }
+  if (objects.length > MAX_LISTED) note(`+ ${objects.length - MAX_LISTED} smaller objects (use the Object tool to pick them)`);
+}
+
+function setHoverObject(id) {
+  if (!state.seg || viewer.hoverObject === id) return;
+  const old = viewer.hoverObject;
+  viewer.hoverObject = id;
+  for (const o of [old, id]) if (o >= 0) viewer.updateFaces(state.seg.facesOf(o), state.selection);
+}
+
+function selectObject(id, mode) {
+  applyFaces(state.seg.facesOf(id), mode);
+}
+
+$('obj-angle').addEventListener('input', (e) => ($('obj-angle-val').textContent = e.target.value + '°'));
+$('obj-angle').addEventListener('change', () => state.mesh && busy(analyzeObjects));
+$('obj-colors').addEventListener('change', () => state.mesh && applyObjectColors());
 
 // ---------------------------------------------------------------------------
 // Selection
@@ -243,6 +320,7 @@ let orbitOverride = false; // Alt held
 
 function setTool(tool) {
   state.tool = tool;
+  setHoverObject(-1);
   for (const b of document.querySelectorAll('#tools button')) b.classList.toggle('active', b.dataset.tool === tool);
   for (const o of document.querySelectorAll('.option[data-for]')) o.classList.toggle('shown', o.dataset.for === tool);
   updateControls();
@@ -255,7 +333,7 @@ function updateControls() {
     MIDDLE: THREE.MOUSE.PAN,
     RIGHT: orbit && state.tool === 'orbit' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
   };
-  view.style.cursor = orbit ? 'grab' : state.tool === 'brush' ? 'none' : 'crosshair';
+  view.style.cursor = orbit ? 'grab' : state.tool === 'brush' ? 'none' : state.tool === 'object' ? 'pointer' : 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
 
@@ -300,6 +378,10 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   const p = localPos(e);
   if (state.tool === 'brush' && !orbitOverride) moveBrushCursor(p);
+  if (state.tool === 'object' && state.seg && e.buttons === 0) {
+    const face = viewer.faceAt(p.x, p.y);
+    setHoverObject(face < 0 ? -1 : state.seg.objectOf[face]);
+  }
   if (!drag) return;
   if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 3) drag.moved = true;
   if (state.tool === 'brush') brushAt(p, drag.mode);
@@ -314,7 +396,10 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 
-canvas.addEventListener('pointerleave', () => (brushCursor.style.display = 'none'));
+canvas.addEventListener('pointerleave', () => {
+  brushCursor.style.display = 'none';
+  setHoverObject(-1);
+});
 
 canvas.addEventListener('pointerup', (e) => {
   if (!drag) return;
@@ -342,6 +427,10 @@ canvas.addEventListener('pointerup', (e) => {
     if (mode === 'replace') runSelection('none');
     return;
   }
+  if (tool === 'object') {
+    selectObject(state.seg.objectOf[face], mode);
+    return;
+  }
   if (tool === 'click') {
     applyFaces([face], mode === 'replace' && state.selection[face] && countSelected() === 1 ? 'remove' : mode);
     return;
@@ -357,7 +446,7 @@ canvas.addEventListener('pointerup', (e) => {
 // ---------------------------------------------------------------------------
 // Keyboard
 
-const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region' };
+const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object' };
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
@@ -420,5 +509,5 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-setTool('brush');
+setTool('object');
 updateButtons();

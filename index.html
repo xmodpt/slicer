@@ -24,6 +24,7 @@
       <section>
         <h2>Select tool</h2>
         <div class="tools" id="tools">
+          <button data-tool="object" title="Hover to preview, click to select a whole detected object (7)">Object</button>
           <button data-tool="orbit" title="Rotate the view with the left mouse button (1)">Orbit</button>
           <button data-tool="click" title="Click triangles (2)">Triangle</button>
           <button data-tool="brush" title="Paint over visible triangles (3)">Brush</button>
@@ -35,6 +36,13 @@
         <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
         <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
         <p class="hint">Shift = add · Ctrl = remove · right-drag rotates · middle-drag pans · wheel zooms</p>
+      </section>
+
+      <section>
+        <h2>Objects found</h2>
+        <label class="option" title="Lower = split the model into more, smaller objects">Split at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
+        <label class="option check"><input id="obj-colors" type="checkbox" checked /> Colour by object</label>
+        <ul id="object-list"></ul>
       </section>
 
       <section>

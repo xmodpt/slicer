@@ -272,3 +272,65 @@ body.dragging #view::after {
     border-top: 1px solid var(--line);
   }
 }
+
+#object-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+#object-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#object-list li:hover {
+  background: #2f3440;
+}
+
+#object-list li.note {
+  color: var(--muted);
+  cursor: default;
+  font-size: 12px;
+}
+
+#object-list li.note:hover {
+  background: none;
+}
+
+#object-list .swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+#object-list .name {
+  flex: 1;
+}
+
+#object-list .meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#object-list button {
+  flex: none;
+  padding: 0 6px;
+  line-height: 18px;
+  font-size: 14px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+#object-list button:hover {
+  color: var(--danger);
+}

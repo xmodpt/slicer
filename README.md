@@ -33,6 +33,7 @@ other computer – `localhost` only works on the Pi itself.
 
    | Tool | Key | What it does |
    |------|-----|--------------|
+   | Object | 7 | Hover to preview, click to select a whole detected object (e.g. a candle on a cake) |
    | Orbit | 1 | Left-drag rotates the view |
    | Triangle | 2 | Click single triangles |
    | Brush | 3 | Paint over visible triangles |
@@ -43,6 +44,14 @@ other computer – `localhost` only works on the Pi itself.
    Shift adds, Ctrl removes. Right-drag rotates, middle-drag pans, wheel zooms,
    hold Alt to rotate with the left button. `Ctrl+A` all, `Esc` none,
    `Ctrl+I` invert, `+`/`-` grow/shrink.
+   **Objects found:** when a file is opened, the model is analysed and split
+   into likely objects, even if everything is fused into one surface. Shapes
+   are separated where the surface folds inwards (a concave crease, like the
+   ring where a candle meets the cake top); tiny fragments are merged into their
+   neighbours. The list shows each object with its size – hover to highlight it,
+   click to select it (Shift adds, Ctrl removes), ✕ deletes it. If objects come
+   out merged, lower *Split at creases over*; if the model is chopped into too
+   many pieces, raise it. The *Sample* button loads a cake with candles to try it.
 3. **Delete** the selection (`Delete` / `Backspace`). Hole rims are outlined in red,
    and the inside of the model shows through in dark red.
 4. **Close holes** (`H`) to cap every hole – or only holes up to N edges.
@@ -59,6 +68,8 @@ holes, parts and whether the mesh is watertight.
 - `src/stl.js` – STL parsing (binary + ASCII) and binary export.
 - `src/mesh.js` – indexed mesh: vertex welding, topology, delete, hole detection
   and filling, selection helpers. No browser dependencies.
+- `src/segment.js` – splits the mesh into suggested objects at concave creases.
+- `src/samples.js` – the built-in cake-with-candles sample.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.

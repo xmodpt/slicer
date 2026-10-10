@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 const BASE_COLOR = new THREE.Color(0xb9c0cc);
 const SELECTED_COLOR = new THREE.Color(0xff7a1a);
+const HOVER_COLOR = new THREE.Color(0x5cc8ff);
 
 // Renders the mesh and answers "which triangles are under the cursor" using
 // an off-screen ID buffer: every triangle is drawn with its index encoded as
@@ -47,9 +48,9 @@ export class Viewer {
     this.backMaterial = new THREE.MeshBasicMaterial({
       color: 0x8f2f35,
       side: THREE.BackSide,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
+      polygonOffset: true, // pushed further back so it never peeks through edges
+      polygonOffsetFactor: 4,
+      polygonOffsetUnits: 8,
     });
     this.wireMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.25 });
     this.pickMaterial = new THREE.ShaderMaterial({
@@ -138,6 +139,7 @@ export class Viewer {
     this.pickScene.add(new THREE.Mesh(geometry, this.pickMaterial));
 
     this.setBoundaryEdges(mesh);
+    this.setObjects(null, null);
     this.setSelection(selection);
     if (frame) this.frame();
     this.pickDirty = true;
@@ -163,11 +165,29 @@ export class Viewer {
     this.group.add(this.boundaryLines);
   }
 
+  // Colour of face t: selection first, then the hovered object, then the
+  // optional per-object colours, else the plain model colour.
+  _faceColor(t, mask) {
+    if (mask[t]) return SELECTED_COLOR;
+    const objectOf = this.objectOf;
+    if (objectOf && objectOf[t] === this.hoverObject) return HOVER_COLOR;
+    if (objectOf && this.objectColors) return this.objectColors[objectOf[t]] || BASE_COLOR;
+    return BASE_COLOR;
+  }
+
+  // objectOf: per-face object id (or null); colors: THREE.Color per object id,
+  // or null to draw the model in one colour.
+  setObjects(objectOf, colors) {
+    this.objectOf = objectOf;
+    this.objectColors = colors;
+    this.hoverObject = -1;
+  }
+
   setSelection(mask) {
     const colors = this.geometry.getAttribute('color');
     const arr = colors.array;
     for (let t = 0; t < this.triangleCount; t++) {
-      const c = mask[t] ? SELECTED_COLOR : BASE_COLOR;
+      const c = this._faceColor(t, mask);
       for (let k = 0; k < 3; k++) {
         arr[t * 9 + k * 3] = c.r; arr[t * 9 + k * 3 + 1] = c.g; arr[t * 9 + k * 3 + 2] = c.b;
       }
@@ -177,21 +197,20 @@ export class Viewer {
     this.requestRender();
   }
 
-  // Recolours only the given faces (used while brushing).
+  // Recolours only the given faces (used while brushing and hovering).
   updateFaces(faces, mask) {
     if (!faces.length) return;
     const colors = this.geometry.getAttribute('color');
     const arr = colors.array;
     let lo = Infinity, hi = -Infinity;
     for (const t of faces) {
-      const c = mask[t] ? SELECTED_COLOR : BASE_COLOR;
+      const c = this._faceColor(t, mask);
       for (let k = 0; k < 3; k++) {
         arr[t * 9 + k * 3] = c.r; arr[t * 9 + k * 3 + 1] = c.g; arr[t * 9 + k * 3 + 2] = c.b;
       }
       if (t < lo) lo = t;
       if (t > hi) hi = t;
     }
-    colors.clearUpdateRanges();
     colors.addUpdateRange(lo * 9, (hi - lo + 1) * 9);
     colors.needsUpdate = true;
     this.requestRender();
