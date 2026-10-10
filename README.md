@@ -10,7 +10,21 @@ npm install
 npm run dev       # open the printed URL
 npm run build     # static build in dist/ (works from any folder / web host)
 npm test          # unit tests for the mesh logic
+npm start         # build + serve the optimized version (port 4173)
 ```
+
+### Running on a Raspberry Pi / another machine
+
+The server listens on all network interfaces, so on the Pi it prints a
+`Network:` address next to `Local:`. Open that one (e.g.
+`http://192.168.1.50:5173`, or `http://raspberrypi.local:5173`) from the
+other computer – `localhost` only works on the Pi itself.
+
+- Use `npm start` for everyday use – it's much lighter on the Pi than `npm run dev`.
+- If the page still doesn't load, a firewall on the Pi may be blocking the port:
+  `sudo ufw allow 5173` (dev) / `sudo ufw allow 4173` (`npm start`).
+- To keep it running after you log out, use e.g. `pm2` or a systemd service
+  running `npm start` in this folder.
 
 ## Workflow
 
