@@ -147,3 +147,26 @@ test('analyzeCut reports the plan without changing the mesh', () => {
   assert.equal(a.areas[1].connectors.length, 0);
   assert.match(a.areas[1].notes.join(' '), /Too thin/);
 });
+
+test('messy models: double faces, inner faces and overlapping pieces still get connectors', () => {
+  const wall = box(0, 0, 0, 80, 10, 40);
+  // a duplicated side face (non-manifold edges)
+  let m = mesh([...wall, ...wall.slice(36, 54)]);
+  let r = cutWithPins(m, { normal: [0, 0, 1], offset: 20 }, { type: 'pin' });
+  assert.ok(r.pins.length >= 2, 'double face');
+  // an inner face splitting the wall
+  m = mesh([...wall, 40, 0, 0, 40, 10, 0, 40, 10, 40, 40, 0, 0, 40, 10, 40, 40, 0, 40]);
+  r = analyzeCut(m, { normal: [0, 0, 1], offset: 20 }, {});
+  assert.ok(r.pins.length >= 2, 'inner face');
+  assert.ok(!r.notes.some((n) => /gap/.test(n)), 'inner faces are not gaps');
+  // a brick overlapping the wall: no connector inside the overlap
+  m = mesh([...wall, ...box(30, -2, 10, 50, 4, 30)]);
+  r = analyzeCut(m, { normal: [0, 0, 1], offset: 20 }, {});
+  for (const a of r.areas) {
+    for (const c of a.connectors) {
+      const [x, y] = [c.center3[0], c.center3[1]];
+      const inWall = x > 0 && x < 80 && y > 0 && y < 10, inBrick = x > 30 && x < 50 && y > -2 && y < 4;
+      assert.ok(!(inWall && inBrick), `connector at ${x.toFixed(1)},${y.toFixed(1)} is in the overlap`);
+    }
+  }
+});
