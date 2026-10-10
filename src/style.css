@@ -1199,8 +1199,44 @@ kbd {
   font-size: 11px;
 }
 
-.mode-chip.parts {
+.mode-chip.edit,
+.mode-chip.cut {
   background: rgba(0, 174, 66, 0.18);
   border-color: var(--accent);
   color: var(--accent-2);
+}
+
+/* Normal | Edit | Cut */
+.mode-switch {
+  display: flex;
+  margin-left: 12px;
+  padding: 3px;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mode-switch button {
+  height: 26px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mode-switch button:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.mode-switch button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+#toolrail [hidden] {
+  display: none;
 }

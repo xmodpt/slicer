@@ -24,7 +24,7 @@
             <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 19h16" /></svg>Export<span class="caret">▾</span>
           </button>
           <div class="menu-panel">
-            <label class="check"><input id="export-selected" type="checkbox" /> Only the selected part(s)</label>
+            <label class="check"><input id="export-selected" type="checkbox" /> Only the selected model(s)</label>
             <button id="export" disabled>Export whole model</button>
             <button id="export-zip" disabled>Download all parts (.zip)</button>
             <button id="export-each" disabled>Download each part as its own STL</button>
@@ -35,6 +35,12 @@
       <div class="tb-group">
         <button class="tb-btn icon" id="undo" title="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg></button>
         <button class="tb-btn icon" id="redo" title="Redo (Ctrl+Y)" disabled><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></svg></button>
+      </div>
+
+      <div class="mode-switch" role="tablist" title="Tab switches Normal ↔ Edit">
+        <button data-appmode="normal" title="Normal (1) – move, rotate, resize and export whole models">Normal</button>
+        <button data-appmode="edit" title="Edit (2 / Tab) – the model's parts: select, delete, split, close holes, group">Edit</button>
+        <button data-appmode="cut" title="Cut (3) – plane cut with pins, holes or dowels">Cut</button>
       </div>
 
       <div id="file-name" class="file-name">No file loaded</div>
@@ -69,6 +75,7 @@
           <div class="menu-panel">
             <label class="check"><input id="auto-place" type="checkbox" checked /> Place on plate when opening</label>
             <label class="check"><input id="split-close" type="checkbox" checked /> Close cut faces when splitting</label>
+            <label class="check"><input id="close-on-exit" type="checkbox" checked /> Close holes when leaving Edit mode</label>
             <label class="field" title="Lower = split the model into more, smaller sub-objects">Split objects at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
           </div>
         </div>
@@ -91,37 +98,46 @@
       <main id="view">
         <!-- Tool rail (left) -->
         <nav id="toolrail">
-          <button data-rail="select" title="Select (O) – object, triangle, brush, box, part, region">
+          <button data-tool="pick" data-modes="normal" title="Select models (O) – click a model, Shift adds, Ctrl removes">
             <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z" /></svg><span class="key">O</span>
           </button>
-          <button data-tool="block" title="Block cut-select (K)">
+          <button data-rail="select" data-modes="edit" title="Select (O) – object, triangle, brush, box, part, region">
+            <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z" /></svg><span class="key">O</span>
+          </button>
+          <button data-tool="block" data-modes="edit" title="Block cut-select (K)">
             <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 2" /><path d="M9 4v16" /></svg><span class="key">K</span>
           </button>
-          <span class="sep"></span>
-          <button data-tool="move" title="Move (M)">
+          <span class="sep" data-modes="normal"></span>
+          <button data-tool="move" data-modes="normal" title="Move (M)">
             <svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3" /></svg><span class="key">M</span>
           </button>
-          <button data-tool="rotate" title="Rotate on the plate (R)">
+          <button data-tool="rotate" data-modes="normal" title="Rotate on the plate (R)">
             <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" /></svg><span class="key">R</span>
           </button>
-          <button data-tool="scale" title="Resize (Z)">
+          <button data-tool="scale" data-modes="normal" title="Resize (Z)">
             <svg viewBox="0 0 24 24"><path d="M4 20 20 4M14 4h6v6M4 14v6h6" /></svg><span class="key">Z</span>
           </button>
-          <button data-tool="layflat" title="Lay flat on a face (L)">
+          <button data-tool="layflat" data-modes="normal" title="Lay flat on a face (L)">
             <svg viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4M3 20h18M6 17h12" /></svg><span class="key">L</span>
           </button>
-          <button data-tool="cut" title="Plane cut with connector pins (C)">
+          <button data-tool="cut" data-modes="cut" title="Plane cut with connector pins (C)">
             <svg viewBox="0 0 24 24"><path d="M3 14h18" stroke-dasharray="3 2" /><path d="M6 4h12v6H6zM6 18h12v3H6z" /></svg><span class="key">C</span>
           </button>
-          <span class="sep"></span>
-          <button data-action="split" id="split" disabled title="Split the selection into its own part (S)">
+          <span class="sep" data-modes="normal edit"></span>
+          <button data-action="split" id="split" data-modes="edit" disabled title="Split the selection into its own part (S)">
             <svg viewBox="0 0 24 24"><path d="M4 4h7v16H4zM14 4h6v16h-6" /></svg><span class="key">S</span>
           </button>
-          <button data-action="holes" title="Close holes (H)">
+          <button data-action="holes" data-modes="edit" title="Close holes (H)">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M8 12h8M12 8v8" /></svg><span class="key">H</span>
           </button>
-          <button data-action="delete" id="delete" class="danger" disabled title="Delete the selection (Del)">
+          <button data-action="delete" id="delete" data-modes="normal edit" class="danger" disabled title="Delete the selection (Del)">
             <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+          </button>
+          <button data-action="group" id="group" data-modes="edit" title="Group the selected parts into one model (Ctrl+G)">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /><path d="M11 7h4a2 2 0 0 1 2 2v4" /></svg>
+          </button>
+          <button data-action="ungroup" id="ungroup" data-modes="edit" title="Ungroup: make the selected parts separate models (Ctrl+Shift+G)">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" stroke-dasharray="2 2" /></svg>
           </button>
           <span class="sep"></span>
           <button data-tool="orbit" title="View / orbit with the left mouse button (V)">
@@ -132,6 +148,15 @@
         <!-- Options of the active tool -->
         <div id="tool-card" class="card">
           <div class="card-head"><span id="card-title"></span><button id="card-close" title="Close">×</button></div>
+
+          <div class="card-body" data-card="pick">
+            <p class="hint">Click a model to select it (Shift adds, Ctrl removes), then move, rotate, resize, lay it flat or export it. Nothing selected = everything.</p>
+            <div class="row">
+              <button id="pick-all" title="Ctrl+A">All</button>
+              <button id="pick-none" title="Esc">None</button>
+            </div>
+            <p class="hint">To change the model itself – delete or split parts, close holes, group or ungroup – switch to <b>Edit</b> (Tab). Leaving Edit makes the parts solid models again.</p>
+          </div>
 
           <div class="card-body" data-card="select">
             <div class="seg" id="select-modes">
@@ -152,7 +177,7 @@
               <button id="sel-grow" title="+">Grow</button>
               <button id="sel-shrink" title="−">Shrink</button>
             </div>
-            <p class="hint">Shift adds, Ctrl removes. Drag on empty space to rotate the view.</p>
+            <p class="hint">Shift adds, Ctrl removes. Drag on empty space to rotate the view. Group the selected parts into one model with Ctrl+G, ungroup with Ctrl+Shift+G.</p>
           </div>
 
           <div class="card-body" data-card="block">
@@ -291,9 +316,16 @@
             <button id="help-close" title="Close">×</button>
           </div>
           <div class="help-body">
+            <h4>Modes</h4>
+            <ul class="keys">
+              <li><kbd>1</kbd> = Normal (move, resize, export)</li>
+              <li><kbd>2</kbd> = Edit (parts)</li>
+              <li><kbd>3</kbd> = Cut</li>
+              <li><kbd>Tab</kbd> = Normal ↔ Edit</li>
+            </ul>
             <h4>Tools</h4>
             <ul class="keys">
-              <li><kbd>O</kbd> = Object select</li>
+              <li><kbd>O</kbd> = Select model / object</li>
               <li><kbd>T</kbd> = Triangle select</li>
               <li><kbd>B</kbd> = Brush select</li>
               <li><kbd>X</kbd> = Box select</li>
@@ -313,6 +345,8 @@
               <li><kbd>Del</kbd> = Delete selection</li>
               <li><kbd>S</kbd> = Split into part</li>
               <li><kbd>H</kbd> = Close holes</li>
+              <li><kbd>Ctrl+G</kbd> = Group parts</li>
+              <li><kbd>Ctrl+Shift+G</kbd> = Ungroup</li>
               <li><kbd>Ctrl+Z</kbd> = Undo</li>
               <li><kbd>Ctrl+Y</kbd> = Redo</li>
             </ul>
@@ -370,7 +404,7 @@
     </div>
 
     <footer id="statusbar">
-      <span id="view-mode" class="mode-chip" title="Choose Select (O) to work with the model's parts">Solid</span>
+      <span id="view-mode" class="mode-chip">Normal</span>
       <span id="status-hint"></span>
       <span class="spacer"></span>
       <span id="placement"></span>

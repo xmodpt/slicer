@@ -26,6 +26,10 @@ const state = {
   partNames: [],
   modelName: null,
   objectColors: [],
+  mode: null, // 'normal' (whole models) | 'edit' (parts) | 'cut'
+  faceGroup: new Int32Array(0), // model (group) id of every triangle; replaced, never changed in place
+  groupNames: new Map(),
+  nextGroup: 1,
   undo: [],
   redo: [],
 };
@@ -92,6 +96,9 @@ async function loadSoup(soup, name) {
   }
   state.fileName = name;
   state.modelName = null;
+  state.faceGroup = new Int32Array(mesh.triangleCount); // the file is one model
+  state.groupNames = new Map();
+  state.nextGroup = 1;
   state.open = new Map();
   state.undo = [];
   state.redo = [];
@@ -110,7 +117,7 @@ async function loadSoup(soup, name) {
     runStep(step);
   }
   await stage('Done', 1);
-  if (SELECT_TOOLS.includes(state.tool)) setTool('orbit'); // a freshly opened model is one solid
+  setMode('normal'); // a freshly opened model is one solid model
   updatePlacement();
   if (state.tool === 'cut') setCut({ offset: null });
   updateButtons();
@@ -161,34 +168,41 @@ $('export-selected').addEventListener('change', updateButtons);
 
 const MAX_PARTS_LISTED = 50;
 
-function partFile(part, i) {
-  const m = state.mesh.extractFaceList(part.faces);
-  const name = state.partNames[i] ? `${baseName()}_${safeName(state.partNames[i])}` : `${baseName()}_part${i + 1}`;
+function groupFile(group) {
+  const m = state.mesh.extractFaceList(group.faces());
+  const name = group.id === 0 && !state.groupNames.has(0) ? `${baseName()}_edited` : `${baseName()}_${safeName(group.name)}`;
   return { name: name + '.stl', data: new Uint8Array(writeBinarySTL(m.positions, m.indices)) };
 }
 
-// Parts to export: all, or (with the toggle) the ones that have a selected face.
-function exportableParts() {
-  let parts = state.parts.map((p, i) => ({ ...p, index: i }));
+// Models to export: all, or (with the toggle) the ones with a selected face.
+function exportableGroups() {
+  let groups = listGroups();
   if (exportSelectedOnly()) {
-    parts = parts.filter((p) => p.faces.some((t) => state.selection[t]));
-    if (!parts.length) {
+    groups = groups.filter((g) => g.parts.some((p) => p.faces.some((t) => state.selection[t])));
+    if (!groups.length) {
       toast('Select something to export first');
       return [];
     }
   }
-  if (parts.length > 100 && !confirm(`The model has ${parts.length} separate pieces – export ${parts.length} files?`)) return [];
-  return parts;
+  if (groups.length > 100 && !confirm(`There are ${groups.length} separate models – export ${groups.length} files?`)) return [];
+  // Unique file names.
+  const used = new Map();
+  return groups.map((g) => {
+    const f = groupFile(g);
+    const n = used.get(f.name) || 0;
+    used.set(f.name, n + 1);
+    if (n) f.name = f.name.replace(/\.stl$/, `_${n + 1}.stl`);
+    return f;
+  });
 }
 
 $('export-zip').addEventListener('click', () => {
-  const files = exportableParts().map((p) => partFile(p, p.index));
-  if (files.length) download(makeZip(files), baseName() + (exportSelectedOnly() ? '_selected_parts.zip' : '_parts.zip'), 'application/zip');
+  const files = exportableGroups();
+  if (files.length) download(makeZip(files), baseName() + (exportSelectedOnly() ? '_selected_models.zip' : '_models.zip'), 'application/zip');
 });
 
 $('export-each').addEventListener('click', async () => {
-  const files = exportableParts().map((p) => partFile(p, p.index));
-  for (const f of files) {
+  for (const f of exportableGroups()) {
     download(f.data, f.name);
     await new Promise((r) => setTimeout(r, 400)); // browsers drop rapid back-to-back downloads
   }
@@ -200,15 +214,15 @@ function renderPartList() {
 }
 
 function updateExportLabels() {
-  const parts = state.parts || [];
+  const groups = state.mesh ? listGroups() : [];
   const only = exportSelectedOnly();
-  const selected = only && state.mesh ? parts.filter((p) => p.faces.some((t) => state.selection[t])).length : parts.length;
-  $('export').textContent = only ? 'Export selection' : 'Export whole model';
+  const selected = only && state.mesh ? groups.filter((g) => g.parts.some((p) => p.faces.some((t) => state.selection[t]))).length : groups.length;
+  $('export').textContent = only ? 'Export selection as one STL' : groups.length > 1 ? 'Export everything as one STL' : 'Export model';
   $('export-zip').disabled = $('export-each').disabled = selected < 1;
   $('export-zip').textContent = only
-    ? `Download ${selected} selected part${selected === 1 ? '' : 's'} (.zip)`
-    : parts.length > 1 ? `Download all ${parts.length} parts (.zip)` : 'Download part (.zip)';
-  $('export-each').textContent = only ? 'Download selected parts as separate STLs' : 'Download each part as its own STL';
+    ? `Download ${selected} selected model${selected === 1 ? '' : 's'} (.zip)`
+    : `Download ${groups.length > 1 ? `all ${groups.length} models` : 'the model'} (.zip)`;
+  $('export-each').textContent = only ? 'Download selected models as separate STLs' : 'Download each model as its own STL';
 }
 
 let dragDepth = 0;
@@ -234,13 +248,24 @@ window.addEventListener('drop', (e) => {
 
 // Runs an undoable geometry change. fn may return a message, or
 // { message, selection } to select faces of the changed mesh afterwards.
+// Mesh + model groups, for undo.
+function snapshotAll() {
+  return { ...state.mesh.snapshot(), faceGroup: state.faceGroup };
+}
+
+function restoreAll(snap) {
+  state.mesh.restore(snap);
+  state.faceGroup = snap.faceGroup && snap.faceGroup.length === state.mesh.triangleCount ? snap.faceGroup : new Int32Array(state.mesh.triangleCount);
+}
+
 function edit(fn) {
   if (!state.mesh) return;
-  const before = state.mesh.snapshot();
+  const before = snapshotAll();
   state.moving = false;
   const result = fn(state.mesh);
   const { message, selection } = typeof result === 'object' && result ? result : { message: result };
   if (state.mesh.indices !== before.indices) {
+    state.faceGroup = remapGroups(before);
     state.undo.push(before);
     if (state.undo.length > 50) state.undo.shift();
     state.redo = [];
@@ -314,16 +339,16 @@ function closeHoles() {
 function undo() {
   if (!state.undo.length) return;
   state.moving = false;
-  state.redo.push(state.mesh.snapshot());
-  state.mesh.restore(state.undo.pop());
+  state.redo.push(snapshotAll());
+  restoreAll(state.undo.pop());
   refresh();
 }
 
 function redo() {
   if (!state.redo.length) return;
   state.moving = false;
-  state.undo.push(state.mesh.snapshot());
-  state.mesh.restore(state.redo.pop());
+  state.undo.push(snapshotAll());
+  restoreAll(state.redo.pop());
   refresh();
 }
 
@@ -338,6 +363,156 @@ $('show-wire').addEventListener('change', (e) => viewer.setWireframe(e.target.ch
 for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => viewer.setView(b.dataset.view));
 $('projection').addEventListener('change', (e) => viewer.setProjection(e.target.value));
 $('rotate-mode').addEventListener('change', (e) => viewer.controls.setMode(e.target.value));
+
+// ---------------------------------------------------------------------------
+// Models (groups of parts)
+//
+// Every triangle carries the id of the model it belongs to. A model is a set
+// of whole parts: in Normal mode it is picked, moved, resized and exported as
+// one; in Edit mode parts can be grouped into one model or ungrouped.
+
+function newGroupId(name) {
+  const id = state.nextGroup++;
+  if (name) state.groupNames.set(id, name);
+  return id;
+}
+
+function groupName(id) {
+  return state.groupNames.get(id) || (id === 0 ? modelName() : `Model ${id + 1}`);
+}
+
+// Groups after a change of the triangles: each part goes to the model most of
+// its corners belonged to before (matched by position); new pieces become
+// models of their own.
+function remapGroups(before) {
+  const mesh = state.mesh;
+  const old = before.faceGroup;
+  const out = new Int32Array(mesh.triangleCount);
+  if (!old || !old.length) return out;
+  let single = true;
+  for (let t = 1; t < old.length && single; t++) if (old[t] !== old[0]) single = false;
+  if (single) return out.fill(old[0]);
+  const P0 = before.positions, I0 = before.indices;
+  const key = (P, v) => P[v * 3] + ',' + P[v * 3 + 1] + ',' + P[v * 3 + 2];
+  const was = new Map();
+  for (let t = 0; t < old.length; t++) for (let k = 0; k < 3; k++) was.set(key(P0, I0[t * 3 + k]), old[t]);
+  const P = mesh.positions, I = mesh.indices;
+  for (const part of mesh.parts()) {
+    const votes = new Map();
+    const step = Math.max(1, Math.floor(part.faces.length / 2000)); // a sample is enough
+    for (let i = 0; i < part.faces.length; i += step) {
+      const t = part.faces[i];
+      for (let k = 0; k < 3; k++) {
+        const g = was.get(key(P, I[t * 3 + k]));
+        if (g !== undefined) votes.set(g, (votes.get(g) || 0) + 1);
+      }
+    }
+    let id = -1, best = 0;
+    for (const [g, n] of votes) if (n > best) (best = n), (id = g);
+    if (id < 0) id = newGroupId();
+    for (const t of part.faces) out[t] = id;
+  }
+  return out;
+}
+
+// The models: [{ id, name, faces, parts }] in order of first appearance.
+function listGroups() {
+  const byId = new Map();
+  for (const part of state.parts || []) {
+    const id = state.faceGroup[part.faces[0]] ?? 0;
+    if (!byId.has(id)) byId.set(id, { id, parts: [] });
+    byId.get(id).parts.push(part);
+  }
+  return [...byId.values()].map((g) => ({
+    ...g,
+    name: groupName(g.id),
+    triangles: g.parts.reduce((n, p) => n + p.faces.length, 0),
+    faces: () => g.parts.flatMap((p) => Array.from(p.faces)),
+  }));
+}
+
+function groupFacesOf(face) {
+  const id = state.faceGroup[face];
+  const out = [];
+  state.faceGroup.forEach((g, t) => g === id && out.push(t));
+  return out;
+}
+
+// Normal mode works on whole models: grow the selection to them.
+function expandSelectionToGroups() {
+  if (!state.mesh || !countSelected()) return;
+  const ids = new Set();
+  state.selection.forEach((v, t) => v && ids.add(state.faceGroup[t]));
+  state.faceGroup.forEach((g, t) => (state.selection[t] = ids.has(g) ? 1 : 0));
+  selectionChanged();
+}
+
+function selectedParts() {
+  return (state.parts || []).filter((p) => p.faces.some((t) => state.selection[t]));
+}
+
+function changeGroups(next, message) {
+  state.undo.push(snapshotAll());
+  if (state.undo.length > 50) state.undo.shift();
+  state.redo = [];
+  state.faceGroup = next;
+  renderObjectList();
+  updateExportLabels();
+  updateButtons();
+  toast(message);
+}
+
+function groupSelected() {
+  if (!state.mesh) return;
+  const parts = selectedParts();
+  const ids = new Set(parts.map((p) => state.faceGroup[p.faces[0]]));
+  if (parts.length < 2 || ids.size < 2) {
+    toast(parts.length < 2 ? 'Select two or more parts to group them' : 'These parts are already one model');
+    return;
+  }
+  const target = Math.min(...ids);
+  const next = Int32Array.from(state.faceGroup);
+  for (const p of parts) for (const t of p.faces) next[t] = target;
+  // Whole models that were touched join completely.
+  next.forEach((g, t) => ids.has(g) && (next[t] = target));
+  changeGroups(next, `Grouped into one model: ${groupName(target)}`);
+}
+
+function ungroupSelected() {
+  if (!state.mesh) return;
+  let parts = selectedParts();
+  if (!parts.length) {
+    toast('Select the parts to ungroup');
+    return;
+  }
+  // Parts sharing a model with nothing else are already on their own.
+  const count = new Map();
+  for (const p of state.parts) count.set(state.faceGroup[p.faces[0]], (count.get(state.faceGroup[p.faces[0]]) || 0) + 1);
+  parts = parts.filter((p) => count.get(state.faceGroup[p.faces[0]]) > 1);
+  if (!parts.length) {
+    toast('Each selected part is already a model of its own');
+    return;
+  }
+  const next = Int32Array.from(state.faceGroup);
+  const kept = new Set();
+  for (const p of parts) {
+    const g = state.faceGroup[p.faces[0]];
+    // When every part of a model is selected, the first one keeps the model.
+    const all = parts.filter((q) => state.faceGroup[q.faces[0]] === g).length === count.get(g);
+    if (all && !kept.has(g)) {
+      kept.add(g);
+      continue;
+    }
+    const id = newGroupId();
+    for (const t of p.faces) next[t] = id;
+  }
+  changeGroups(next, parts.length === 1 ? 'Ungrouped – the part is now a model of its own' : `Ungrouped – ${parts.length} parts are now separate models`);
+}
+
+$('group').addEventListener('click', groupSelected);
+$('pick-all').addEventListener('click', () => runSelection('all'));
+$('pick-none').addEventListener('click', () => runSelection('none'));
+$('ungroup').addEventListener('click', ungroupSelected);
 
 // Run after every geometry change, once the model is on screen.
 const ANALYSIS_STEPS = [
@@ -411,6 +586,7 @@ function runStep(step) {
 // Geometry changed: rebuild everything and clear the selection.
 function refresh({ frame = false } = {}) {
   const { mesh } = state;
+  if (state.faceGroup.length !== mesh.triangleCount) state.faceGroup = new Int32Array(mesh.triangleCount);
   state.hidden = null;
   state.partNames = [];
   state.names = new Map();
@@ -529,29 +705,15 @@ function renderObjectList() {
   const rowsByPart = parts.map(() => []);
   for (const row of state.rows) rowsByPart[partOf[facesOf(row.ids[0])[0]]].push(row);
 
-  const allIds = objects.length <= 2000 ? objects.map((o) => o.id) : [];
   const facesOfRow = (row) => {
     const out = [];
     for (const id of row.ids) for (const t of facesOf(id)) out.push(t);
     return out;
   };
 
-  addTreeRow(list, {
-    key: 'model',
-    depth: 0,
-    name: modelName(),
-    rename: (v) => (state.modelName = v),
-    meta: `${state.mesh.triangleCount.toLocaleString()} tris`,
-    faces: () => null, // everything
-    hoverIds: allIds,
-    group: state.partsMode,
-    icon: '◆',
-  });
-  if (!state.partsMode) {
-    treeNote(list, 1, 'Shown as one solid. Choose Select (O) to see and pick its parts.');
-    return;
-  }
-  if (!isOpen('model', true)) return;
+  const groups = listGroups();
+  const partIndex = new Map(parts.map((p, i) => [p, i]));
+  const editing = state.partsMode;
 
   const addObjects = (rows, depth) => {
     for (const row of rows.slice(0, MAX_CHILDREN)) {
@@ -574,38 +736,60 @@ function renderObjectList() {
     if (rows.length > MAX_CHILDREN) treeNote(list, depth, `+ ${rows.length - MAX_CHILDREN} smaller objects (pick them with the Object tool)`);
   };
 
-  if (parts.length === 1) {
-    // One piece: its sub-objects sit directly under the model.
-    if (rowsByPart[0].length > 1) addObjects(rowsByPart[0], 1);
-    else treeNote(list, 1, 'No sub-objects found. Lower “Split at creases” to split the model further.');
-    return;
-  }
-  parts.slice(0, MAX_PARTS_LISTED).forEach((part, i) => {
-    const key = 'part:' + i;
-    const rows = rowsByPart[i];
+  groups.slice(0, MAX_PARTS_LISTED).forEach((group) => {
+    const key = 'group:' + group.id;
+    const gParts = group.parts;
+    const subRows = gParts.length === 1 ? rowsByPart[partIndex.get(gParts[0])] : [];
+    const hasChildren = editing && (gParts.length > 1 || subRows.length > 1);
     addTreeRow(list, {
       key,
-      depth: 1,
-      name: partName(i),
-      rename: (v) => (state.partNames[i] = v),
-      meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
-      badge: state.floatingFirst?.has(part.faces[0]) ? 'floating' : null,
-      faces: () => part.faces,
-      hoverIds: rows.flatMap((r) => r.ids),
-      group: rows.length > 1,
-      defaultOpen: parts.length <= 5,
-      icon: '▣',
+      depth: 0,
+      name: group.name,
+      rename: (v) => state.groupNames.set(group.id, v),
+      meta: `${gParts.length > 1 ? gParts.length + ' parts · ' : ''}${group.triangles.toLocaleString()} tris`,
+      title: editing ? '' : 'A model: picked, moved, resized and exported as one. Edit mode (Tab) shows its parts.',
+      badge: gParts.some((p) => state.floatingFirst?.has(p.faces[0])) ? 'floating' : null,
+      faces: group.faces,
+      hoverIds: gParts.flatMap((p) => rowsByPart[partIndex.get(p)].flatMap((r) => r.ids)),
+      group: hasChildren,
+      defaultOpen: groups.length <= 5,
+      icon: '◆',
       download: () => {
-        const f = partFile(part, i);
+        const f = groupFile(group);
         download(f.data, f.name);
       },
       remove: true,
     });
-    if (rows.length > 1 && isOpen(key, parts.length <= 5)) addObjects(rows, 2);
+    if (!hasChildren || !isOpen(key, groups.length <= 5)) return;
+    if (gParts.length === 1) {
+      addObjects(subRows, 1);
+      return;
+    }
+    gParts.slice(0, MAX_PARTS_LISTED).forEach((part) => {
+      const i = partIndex.get(part);
+      const pkey = 'part:' + i;
+      const rows = rowsByPart[i];
+      addTreeRow(list, {
+        key: pkey,
+        depth: 1,
+        name: partName(i),
+        rename: (v) => (state.partNames[i] = v),
+        meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
+        badge: state.floatingFirst?.has(part.faces[0]) ? 'floating' : null,
+        faces: () => part.faces,
+        hoverIds: rows.flatMap((r) => r.ids),
+        group: rows.length > 1,
+        defaultOpen: false,
+        icon: '▣',
+        remove: true,
+      });
+      if (rows.length > 1 && isOpen(pkey, false)) addObjects(rows, 2);
+    });
+    if (gParts.length > MAX_PARTS_LISTED) treeNote(list, 1, `+ ${gParts.length - MAX_PARTS_LISTED} more small pieces`);
   });
-  if (parts.length > MAX_PARTS_LISTED) {
-    treeNote(list, 1, `+ ${parts.length - MAX_PARTS_LISTED} more small pieces` + (parts.length > 500 ? ' – the triangles in this file may not be connected to each other' : ''));
-  }
+  if (groups.length > MAX_PARTS_LISTED) treeNote(list, 0, `+ ${groups.length - MAX_PARTS_LISTED} more models`);
+  if (!editing) treeNote(list, 0, groups.length > 1 ? 'Click a model to select it. Edit mode (Tab) shows the parts.' : 'Shown as one solid model. Edit mode (Tab) shows its parts.');
+  else if (groups.length === 1 && parts.length === 1 && rowsByPart[0].length <= 1) treeNote(list, 1, 'No sub-objects found. Lower “Split at creases” to split the model further.');
 }
 
 function isOpen(key, fallback) {
@@ -663,8 +847,7 @@ function addTreeRow(list, row) {
   li.addEventListener('mouseenter', () => setHoverObjects(row.hoverIds));
   li.addEventListener('mouseleave', () => setHoverObjects([]));
   li.addEventListener('click', (e) => {
-    if (row.depth === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) runSelection('all');
-    else applyFaces(faces(), modeFor(e, 'replace'));
+    applyFaces(faces(), modeFor(e, 'replace'));
   });
   name.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -909,6 +1092,7 @@ const selectionCommands = {
 
 function runSelection(name) {
   if (!state.mesh) return;
+  if (state.mode === 'normal' && (name === 'grow' || name === 'shrink')) return; // whole models only
   selectionCommands[name]();
   selectionChanged();
 }
@@ -923,7 +1107,49 @@ const boxRect = $('box-rect');
 let orbitOverride = false; // Alt held
 
 const SELECT_TOOLS = ['object', 'click', 'brush', 'box', 'part', 'region'];
+// Each mode has its own tools; View (orbit) is in all of them.
+const MODE_TOOLS = {
+  normal: ['pick', 'move', 'rotate', 'scale', 'layflat'],
+  edit: [...SELECT_TOOLS, 'block'],
+  cut: ['cut'],
+};
+const MODE_DEFAULT = { normal: 'pick', edit: 'object', cut: 'cut' };
+const MODE_HINTS = {
+  normal: 'Normal mode – pick, move, rotate, resize and export whole models',
+  edit: 'Edit mode – select, delete, split, group parts',
+  cut: 'Cut mode – cut with pins, holes or dowels',
+};
+const modeOfTool = (tool) => Object.keys(MODE_TOOLS).find((m) => MODE_TOOLS[m].includes(tool));
+
+function setMode(mode, tool) {
+  const leaving = state.mode;
+  if (mode !== leaving) {
+    state.mode = mode;
+    // Back from Edit: the parts become solid models again – holes left by
+    // deleting are closed, and the selection covers whole models.
+    if (leaving === 'edit' && state.mesh) {
+      if ($('close-on-exit').checked && state.holes) closeHoles();
+      expandSelectionToGroups();
+    }
+    if (mode === 'normal') expandSelectionToGroups();
+    for (const b of document.querySelectorAll('[data-appmode]')) b.classList.toggle('active', b.dataset.appmode === mode);
+    for (const b of document.querySelectorAll('#toolrail [data-modes]')) b.hidden = !b.dataset.modes.split(' ').includes(mode);
+    $('view-mode').textContent = { normal: 'Normal', edit: 'Edit', cut: 'Cut' }[mode];
+    $('view-mode').className = 'mode-chip ' + mode;
+    $('view-mode').title = MODE_HINTS[mode];
+    state.partsMode = mode === 'edit';
+    if (state.mesh && state.seg) {
+      applyObjectColors();
+      renderObjectList();
+    }
+  }
+  setTool(tool || (mode === 'edit' && state.lastSelect) || MODE_DEFAULT[mode], true);
+}
+
+for (const b of document.querySelectorAll('[data-appmode]')) b.addEventListener('click', () => setMode(b.dataset.appmode));
+
 const CARD_TITLES = {
+  pick: 'Select models',
   select: 'Select',
   block: 'Block cut & select',
   move: 'Move',
@@ -935,6 +1161,7 @@ const CARD_TITLES = {
   orbit: 'View',
 };
 const TOOL_HINTS = {
+  pick: 'Click a model to select it · Shift adds · Ctrl removes · Tab = Edit mode for its parts',
   object: 'Object: click a sub-object to select it · Shift adds · Ctrl removes',
   click: 'Triangle: click triangles to select them',
   brush: 'Brush: paint over the model to select',
@@ -966,21 +1193,12 @@ function showCard() {
   for (const b of document.querySelectorAll('#toolrail [data-action="holes"]')) b.classList.toggle('active', cardOverride === 'holes');
 }
 
-function setTool(tool) {
+function setTool(tool, fromMode = false) {
+  // A tool of another mode switches to that mode first.
+  const mode = modeOfTool(tool);
+  if (!fromMode && mode && mode !== state.mode) return setMode(mode, tool);
   state.tool = tool;
   if (SELECT_TOOLS.includes(tool)) state.lastSelect = tool;
-  // The model is one solid; its parts and sub-objects show only while
-  // selecting. The selection stays, so a picked part can be moved or resized.
-  const partsMode = SELECT_TOOLS.includes(tool);
-  if (partsMode !== state.partsMode) {
-    state.partsMode = partsMode;
-    $('view-mode').textContent = partsMode ? 'Parts' : 'Solid';
-    $('view-mode').classList.toggle('parts', partsMode);
-    if (state.mesh && state.seg) {
-      applyObjectColors();
-      renderObjectList();
-    }
-  }
   if (tool === 'scale') fillScale({ force: true });
   if (tool === 'cut' && state.mesh) setCut({});
   else showCutPlane();
@@ -1030,7 +1248,7 @@ for (const b of document.querySelectorAll('.menu-panel > button, .menu-panel .vi
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
   // Click tools: a click selects, a left-drag rotates (as in slicers).
-  const clickTool = ['object', 'click', 'part', 'region', 'layflat', 'cut'].includes(state.tool);
+  const clickTool = ['pick', 'object', 'click', 'part', 'region', 'layflat', 'cut'].includes(state.tool);
   // Tools that drag on the model (Rotate, Brush): a drag that starts on empty
   // space rotates the view instead. Box and Block need empty space for their
   // rectangle.
@@ -1055,7 +1273,7 @@ function updateControls() {
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
-  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize', move: 'move' };
+  const cursors = { brush: 'none', pick: 'pointer', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize', move: 'move' };
   view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
@@ -1188,6 +1406,10 @@ canvas.addEventListener('pointerup', (e) => {
     if (mode === 'replace') runSelection('none');
     return;
   }
+  if (tool === 'pick') {
+    applyFaces(groupFacesOf(face), mode);
+    return;
+  }
   if (tool === 'object') {
     selectObjects(rowObjects(state.seg.objectOf[face]), mode);
     return;
@@ -1248,7 +1470,7 @@ function moveBy(dx, dy, dz) {
 function transformBurst(change) {
   const mesh = state.mesh;
   if (!state.moving) {
-    state.undo.push(mesh.snapshot());
+    state.undo.push(snapshotAll());
     if (state.undo.length > 50) state.undo.shift();
     state.redo = [];
     state.moving = true;
@@ -1287,11 +1509,12 @@ function rotateBy(axis, degrees) {
 // selection of separate parts – then only those turn.
 function layFlatAt(face) {
   const mesh = state.mesh;
+  if (!state.selection[face] && state.mode === 'normal') applyFaces(groupFacesOf(face), 'replace');
   const target = countSelected() && state.selection[face] ? moveTarget() : { faces: null, label: 'whole model' };
   const { normal } = mesh.flatAreaNormal(face, 2);
   transformBurst(() => mesh.layFlat(normal, target.faces));
   state.moving = false; // each click is its own undo step
-  toast(target.faces ? 'Laid the selected parts flat on that face' : 'Laid the model flat on that face');
+  toast(target.faces ? 'Laid the selected model flat on that face' : 'Laid the model flat on that face');
 }
 
 // Rotate tool: dragging sideways spins the target around Z (Shift snaps to 15°).
@@ -1345,12 +1568,7 @@ function startSlide(p) {
   const mesh = state.mesh;
   const face = viewer.faceAt(p.x, p.y);
   if (face < 0) return;
-  if (!state.selection[face]) {
-    const piece = mesh.selectConnected([face], new Uint8Array(mesh.triangleCount));
-    const faces = [];
-    piece.forEach((v, t) => v && faces.push(t));
-    applyFaces(faces, 'replace');
-  }
+  if (!state.selection[face]) applyFaces(groupFacesOf(face), 'replace');
   const grab = viewer.pointAt(p.x, p.y);
   if (!grab) return;
   state.moving = false;
@@ -1681,6 +1899,25 @@ function doCut() {
     hasPins: result.pins.some((p) => p.kind === 'pin'),
     longest: Math.max(0, ...result.pins.map((p) => Math.max(p.length, p.holeDepth))),
   };
+  // The halves become separate models (the lower one keeps the name), and so
+  // does every dowel.
+  {
+    const next = Int32Array.from(state.faceGroup);
+    const groups = cutGroups();
+    const upperOf = new Map();
+    for (const part of groups.upper) {
+      const g = next[part.faces[0]];
+      if (!upperOf.has(g)) upperOf.set(g, newGroupId(`${groupName(g)} (top)`));
+      for (const t of part.faces) next[t] = upperOf.get(g);
+    }
+    groups.dowel.forEach((part, i) => {
+      const id = newGroupId(`Dowel ${i + 1}`);
+      for (const t of part.faces) next[t] = id;
+    });
+    state.faceGroup = next;
+    renderObjectList();
+    updateExportLabels();
+  }
   viewer.setConnectorPreview(null);
   setCutStep(4);
   const conns = result.areas.flatMap((a) => a.connectors);
@@ -1934,8 +2171,6 @@ for (const b of document.querySelectorAll('[data-scale]')) {
 // Keyboard
 
 const toolKeys = {
-  1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat',
-  // Letters, easier to remember:
   v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut', m: 'move', z: 'scale',
 };
 
@@ -1985,8 +2220,16 @@ window.addEventListener('keydown', (e) => {
     runSelection('all');
   } else if (mod && e.key.toLowerCase() === 'i') {
     runSelection('invert');
+  } else if (mod && e.key.toLowerCase() === 'g') {
+    e.shiftKey ? ungroupSelected() : groupSelected();
   } else if (mod) {
     return;
+  } else if (e.key === 'Tab') {
+    setMode(state.mode === 'edit' ? 'normal' : 'edit');
+  } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+    setMode(['normal', 'edit', 'cut'][+e.key - 1]);
+  } else if (e.key.toLowerCase() === 'o' && !e.shiftKey) {
+    setTool(state.mode === 'edit' ? 'object' : 'pick');
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     deleteSelected();
   } else if (e.key === 'Escape') {
@@ -2035,7 +2278,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-setTool('orbit');
+setMode('normal');
 updateButtons();
 
 window.__appStarted = true;

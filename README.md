@@ -49,6 +49,26 @@ is never sent to the browser.
 Each analysis is one request to the Claude Opus 5.5 model with four images –
 typically a few cents. Everything else in the app works without a key.
 
+## Modes
+
+The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
+
+- **Normal** – work with whole **models**: click a model to select it (Shift
+  adds, Ctrl removes), then Move, Rotate, Resize, Lay flat or Export it.
+  An opened file is one solid model.
+- **Edit** – the model's **parts** and sub-objects (coloured, listed in the
+  tree): select, delete, split, Block cut, close holes, and **group / ungroup**
+  parts (`Ctrl+G` / `Ctrl+Shift+G`). Grouped parts are one model in Normal
+  mode – moved, resized and exported together; an ungrouped part is a model of
+  its own. Split pieces stay in their model until you ungroup them.
+  Leaving Edit makes everything solid models again: holes left open are
+  closed (*⚙ → Close holes when leaving Edit mode*) and the selection grows to
+  whole models.
+- **Cut** – the plane cut with pins, holes or dowels. The two halves become
+  separate models (the top one is named “… (top)”), and so does every dowel.
+
+Undo/redo covers grouping too.
+
 ## Layout
 
 - **Top bar:** Open, Sample, **Export ▾** (whole model, selection only, all parts
@@ -56,12 +76,16 @@ typically a few cents. Everything else in the app works without a key.
   views, camera, rotation mode, hole edges, wireframe, colour by object),
   **⚙ Settings** (place on plate when opening, close cut faces when splitting,
   sub-object sensitivity) and **✨ AI**.
-- **Tool rail** (left of the 3D view): Select, Block, Move, Rotate, Resize,
-  Lay flat, Cut · Split, Close holes, Delete · View. Clicking a tool opens a small card
+- **Mode switch** (top bar): Normal | Edit | Cut.
+- **Tool rail** (left of the 3D view) – only the current mode's tools:
+  Normal: Select models, Move, Rotate, Resize, Lay flat, Delete · Edit:
+  Select, Block, Split, Close holes, Delete, Group, Ungroup · Cut: Cut ·
+  and View in every mode. Clicking a tool opens a small card
   with just that tool's options (× hides it).
-- **Right sidebar:** the object tree (with the floating-parts warning) and
+- **Right sidebar:** the object tree – models in Normal mode; models, their
+  parts and sub-objects in Edit mode – with the floating-parts warning, and
   model info.
-- **Status bar:** a *Solid* / *Parts* chip (see below), a hint for the current tool, the position/size of the model
+- **Status bar:** the current mode, a hint for the current tool, the position/size of the model
   or selection, and the selection count.
 - **Navigation gizmo** (top right) and the **Shortcuts** box under the `?`.
 
@@ -72,7 +96,9 @@ The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
 
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
-| `O` | Object select | `R` | Rotate on plate |
+| `1` / `2` / `3` | Normal / Edit / Cut mode | `Tab` | Normal ↔ Edit |
+| `Ctrl+G` | Group parts into one model | `Ctrl+Shift+G` | Ungroup |
+| `O` | Select model (Normal) / object (Edit) | `R` | Rotate on plate |
 | `V` | View / orbit | `L` | Lay flat |
 | `T` | Triangle select | `C` | Cut / plane cut (`Enter` cuts) |
 | `B` | Brush select | `S` | Split selection into a part |
@@ -85,7 +111,7 @@ The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
 | `Home` | Centre on the plate | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+A` / `Ctrl+I` / `Esc` | All / invert / none | `+` / `−` | Grow / shrink selection |
 
-Number keys 1–9 and 0 also pick tools.
+A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
 
 ## Workflow
 
@@ -97,14 +123,14 @@ Number keys 1–9 and 0 also pick tools.
 
    | Tool | Key | What it does |
    |------|-----|--------------|
-   | Object | 7 | Hover to preview, click to select a whole detected object (e.g. a candle on a cake) |
-   | Orbit | 1 | Left-drag rotates the view |
-   | Triangle | 2 | Click single triangles |
-   | Brush | 3 | Paint over visible triangles |
-   | Box | 4 | Drag a rectangle (tick *Select through* to include hidden faces) |
-   | Part | 5 | Click to select a whole connected part (e.g. a floating support) |
-   | Region | 6 | Click to flood-select a smooth/flat area up to a max angle |
-   | Block | 8 | Drag a rectangle: cuts the model cleanly along its edges (all the way through) and selects the block inside |
+   | Object | O | Hover to preview, click to select a whole detected object (e.g. a candle on a cake) |
+   | View | V | Left-drag rotates the view |
+   | Triangle | T | Click single triangles |
+   | Brush | B | Paint over visible triangles |
+   | Box | X | Drag a rectangle (tick *Select through* to include hidden faces) |
+   | Part | P | Click to select a whole connected part (e.g. a floating support) |
+   | Region | G | Click to flood-select a smooth/flat area up to a max angle |
+   | Block | K | Drag a rectangle: cuts the model cleanly along its edges (all the way through) and selects the block inside |
 
    Shift adds, Ctrl removes. `Ctrl+A` all, `Esc` none, `Ctrl+I` invert,
    `+`/`-` grow/shrink.
@@ -124,11 +150,8 @@ Number keys 1–9 and 0 also pick tools.
    look straight along an axis, and *Camera: Orthographic* removes
    perspective – together they give exact, axis-aligned Block cuts.
 
-   **Solid vs. parts view:** an opened model is shown as **one solid** – one
-   colour and a single row in the Objects list. Choosing the *Select* tool
-   (`O`) switches to the **parts view**: the detected parts and sub-objects get
-   their colours and the tree expands so you can pick them. Leaving Select
-   (any other tool) goes back to the solid view; the selection is kept.
+   (These selection tools are in **Edit** mode; Normal mode picks whole
+   models.)
 
    **Objects (outliner):** each file comes in as one group – the model –
    with its separate parts and the sub-objects detected in each part beneath
@@ -165,7 +188,7 @@ Number keys 1–9 and 0 also pick tools.
    **Move with the mouse:** the *Move* tool (`M`) – drag a part and it slides
    across the plate under the cursor (it gets selected if it wasn't); Shift
    moves it up/down, Ctrl snaps to the move step.
-   **Rotate:** the *Rotate* tool (`9`) spins the model (or selected part) on
+   **Rotate:** the *Rotate* tool (`R`) spins the model (or selected part) on
    the plate as you drag left/right – Shift snaps to 15°. The move pad's ⟲ ⟳
    buttons and `Q` / `E` rotate by the chosen angle (5/15/45/90°); *X 90°* /
    *Y 90°* tip it over and set it back on the plate.
@@ -176,7 +199,7 @@ Number keys 1–9 and 0 also pick tools.
    (relative to the current size): 50 %, 200 %, 1000 %, *inch → mm* (×25.4, for models saved in inches) and *mm → inch*.
    *Apply size* (or Enter) resizes around the bottom centre, so the model
    stays on the plate. With split-off parts selected, only they are resized.
-   **Lay flat:** the *Lay flat* tool (`0`) – click any face and the model
+   **Lay flat:** the *Lay flat* tool (`L`) – click any face and the model
    turns so that face (with the flat area around it) rests on the plate.
    The whole model turns as one group; to turn only some parts, select them
    first and click a face on them.
@@ -207,11 +230,12 @@ Number keys 1–9 and 0 also pick tools.
    rest and the cut faces on both sides are closed, so each part is a solid of
    its own. Example – an L-shaped wall: Top view, Orthographic, Block-drag over
    one leg starting at the corner, `S`.
-7. **Export:** download every part as its own STL, all parts in one ZIP, or
-   *Export whole model* as one file. Single parts download from their row in
-   the outliner. Tick *Only export the selected part(s)* to export just the
-   selection – as one STL (*Export selection*) or the selected parts as a ZIP
-   or separate files.
+7. **Export:** download every model as its own STL, all models in one ZIP,
+   or everything as one file. A single model downloads from its row in the
+   outliner (*STL*). Tick *Only the selected model(s)* to export just the
+   selection – as one STL or the selected models as a ZIP or separate files.
+   To export a split-off part as its own file, ungroup it first (Edit mode,
+   `Ctrl+Shift+G`).
 
 **Floating parts:** after loading and after every change, pieces that don't
 rest on the plate and don't touch anything that does (directly or through
