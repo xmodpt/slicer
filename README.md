@@ -60,10 +60,17 @@ typically a few cents. Everything else in the app works without a key.
    | Box | 4 | Drag a rectangle (tick *Select through* to include hidden faces) |
    | Part | 5 | Click to select a whole connected part (e.g. a floating support) |
    | Region | 6 | Click to flood-select a smooth/flat area up to a max angle |
+   | Block | 8 | Drag a rectangle: cuts the model cleanly along its edges (all the way through) and selects the block inside |
 
-   Shift adds, Ctrl removes. Right-drag rotates, middle-drag pans, wheel zooms,
-   hold Alt to rotate with the left button. `Ctrl+A` all, `Esc` none,
-   `Ctrl+I` invert, `+`/`-` grow/shrink.
+   Shift adds, Ctrl removes. `Ctrl+A` all, `Esc` none, `Ctrl+I` invert,
+   `+`/`-` grow/shrink.
+
+   **Navigation:** right-drag rotates, Shift+right-drag or middle-drag pans,
+   the wheel zooms toward the cursor, double-click sets the rotation centre,
+   hold Alt to rotate with the left button. *Rotate: Free* tumbles in every
+   direction; *Turntable* keeps Z up. The view buttons (Top, Front, Right…)
+   look straight along an axis, and *Camera: Orthographic* removes
+   perspective – together they give exact, axis-aligned Block cuts.
 
    **Objects found:** when a file is opened, the model is analysed and split
    into likely objects, even if everything is fused into one surface. Shapes
@@ -82,7 +89,13 @@ typically a few cents. Everything else in the app works without a key.
    Each hole is triangulated in its best-fit plane (flat cap for planar cuts),
    falling back to a fan around the centre for very twisted holes. The patch
    follows the orientation of the surrounding faces.
-5. **Export STL** to download the edited model as binary STL.
+5. **Split into parts** (optional): select a region (e.g. with Block) and press
+   *Split selection into new part* (`S`). The selection is detached from the
+   rest and the cut faces on both sides are closed, so each part is a solid of
+   its own. Example – an L-shaped wall: Top view, Orthographic, Block-drag over
+   one leg starting at the corner, `S`.
+6. **Export:** *Parts & export* lists every separate part. Download each part
+   as its own STL, all parts in one ZIP, or *Export whole model* as one file.
 
 `Ctrl+Z` / `Ctrl+Y` undo and redo. The *Model* panel shows triangle count,
 holes, parts and whether the mesh is watertight.
@@ -96,6 +109,8 @@ holes, parts and whether the mesh is watertight.
 - `src/samples.js` – the built-in cake-with-candles sample.
 - `server/ai.js` – server-side Claude request for *Ask AI* (hooked into the Vite
   server by `vite.config.js`).
+- `src/controls.js` – camera navigation (free/turntable rotation, pan, zoom to cursor).
+- `src/zip.js` – minimal ZIP writer for the multi-part download.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.

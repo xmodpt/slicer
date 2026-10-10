@@ -17,7 +17,7 @@
           <input id="file-input" type="file" accept=".stl" hidden />
           <button id="sample">Sample</button>
         </div>
-        <button id="export" class="wide" disabled>Export STL</button>
+        <button id="export" class="wide" disabled>Export whole model</button>
         <div id="file-name" class="muted">No file loaded – drop an .stl anywhere.</div>
       </section>
 
@@ -29,13 +29,15 @@
           <button data-tool="click" title="Click triangles (2)">Triangle</button>
           <button data-tool="brush" title="Paint over visible triangles (3)">Brush</button>
           <button data-tool="box" title="Drag a rectangle (4)">Box</button>
+          <button data-tool="block" title="Drag a rectangle to cut the model along its edges and select the block inside (8)">Block</button>
           <button data-tool="part" title="Click to select a whole connected part (5)">Part</button>
           <button data-tool="region" title="Click to select a smooth/flat region (6)">Region</button>
         </div>
         <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
         <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
         <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
-        <p class="hint">Shift = add · Ctrl = remove · right-drag rotates · middle-drag pans · wheel zooms</p>
+        <p class="option hint" data-for="block">Drag a rectangle: the model is cut along its edges, all the way through, and the block inside is selected. Use a straight view (Top, Front…) for straight cuts, then <b>Split</b> it into its own part.</p>
+        <p class="hint">Shift = add · Ctrl = remove · right-drag rotates · Shift+right-drag or middle-drag pans · wheel zooms to the cursor · double-click sets the rotation centre</p>
       </section>
 
       <section>
@@ -63,6 +65,8 @@
           <button id="sel-shrink" title="-">Shrink</button>
         </div>
         <button id="delete" class="wide danger" disabled title="Delete">Delete selected</button>
+        <button id="split" class="wide" disabled title="S">Split selection into new part</button>
+        <label class="option check"><input id="split-close" type="checkbox" checked /> Close the cut faces when splitting</label>
       </section>
 
       <section>
@@ -72,7 +76,25 @@
       </section>
 
       <section>
+        <h2>Parts &amp; export</h2>
+        <ul id="part-list"></ul>
+        <button id="export-zip" class="wide primary" disabled>Download all parts (.zip)</button>
+        <button id="export-each" class="wide" disabled>Download each part as its own STL</button>
+      </section>
+
+      <section>
         <h2>View</h2>
+        <div class="views">
+          <button data-view="iso">Iso</button>
+          <button data-view="top">Top</button>
+          <button data-view="front">Front</button>
+          <button data-view="right">Right</button>
+          <button data-view="left">Left</button>
+          <button data-view="back">Back</button>
+          <button data-view="bottom">Bottom</button>
+        </div>
+        <label class="option">Camera <select id="projection"><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
+        <label class="option">Rotate <select id="rotate-mode"><option value="free">Free (all directions)</option><option value="turntable">Turntable (Z stays up)</option></select></label>
         <label class="option check"><input id="show-boundary" type="checkbox" checked /> Highlight hole edges</label>
         <label class="option check"><input id="show-wire" type="checkbox" /> Wireframe</label>
         <div class="row">

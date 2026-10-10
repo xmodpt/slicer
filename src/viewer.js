@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CameraControls } from './controls.js';
 
 const BASE_COLOR = new THREE.Color(0xb9c0cc);
 const SELECTED_COLOR = new THREE.Color(0xff7a1a);
@@ -18,20 +18,26 @@ export class Viewer {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1b1e24);
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
-    this.camera.position.set(2, -3, 2);
-    this.camera.up.set(0, 0, 1); // STL files are usually Z-up
-    this.scene.add(this.camera);
+    this.perspectiveCamera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
+    this.orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+    this.camera = this.perspectiveCamera;
+    this.scene.add(this.perspectiveCamera, this.orthographicCamera);
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404650, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
-    key.position.set(1, 1.5, 2);
-    this.camera.add(key); // light follows the view
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.keyLight.position.set(1, 1.5, 2);
+    this.camera.add(this.keyLight); // light follows the view
 
-    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls = new CameraControls(this.canvas, this.perspectiveCamera, this.orthographicCamera);
     this.controls.addEventListener('change', () => {
       this.pickDirty = true;
       this.requestRender();
+    });
+    // Double-click on the model: rotate around that point from now on.
+    this.canvas.addEventListener('dblclick', (e) => {
+      const r = this.canvas.getBoundingClientRect();
+      const p = this.pointAt(e.clientX - r.left, e.clientY - r.top);
+      if (p) this.controls.setPivot(p);
     });
 
     this.frontMaterial = new THREE.MeshStandardMaterial({
@@ -107,8 +113,7 @@ export class Viewer {
     const w = this.container.clientWidth, h = this.container.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.controls.update();
     this.pickDirty = true;
     this.requestRender();
   }
@@ -232,14 +237,67 @@ export class Viewer {
   frame() {
     const sphere = this.geometry?.boundingSphere;
     if (!sphere || !isFinite(sphere.radius) || sphere.radius === 0) return;
-    const dist = sphere.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    const dir = new THREE.Vector3(0.55, -0.75, 0.45).normalize();
-    this.camera.near = sphere.radius / 1000;
-    this.camera.far = sphere.radius * 1000;
-    this.camera.position.copy(sphere.center).addScaledVector(dir, dist * 1.1);
-    this.camera.updateProjectionMatrix();
-    this.controls.target.copy(sphere.center);
+    this.controls.frame(sphere.center, sphere.radius);
+  }
+
+  // Standard views. `dir` points from the model toward the camera.
+  setView(name) {
+    const views = {
+      iso: [[0.55, -0.75, 0.45], [0, 0, 1]],
+      front: [[0, -1, 0], [0, 0, 1]],
+      back: [[0, 1, 0], [0, 0, 1]],
+      left: [[-1, 0, 0], [0, 0, 1]],
+      right: [[1, 0, 0], [0, 0, 1]],
+      top: [[0, 0, 1], [0, 1, 0]],
+      bottom: [[0, 0, -1], [0, -1, 0]],
+    };
+    const [dir, up] = views[name];
+    this.controls.setView(dir, up);
+    this.frame();
+  }
+
+  setProjection(kind) {
+    this.camera = kind === 'orthographic' ? this.orthographicCamera : this.perspectiveCamera;
+    this.camera.add(this.keyLight);
     this.controls.update();
+  }
+
+  // Surface point under a CSS-pixel position, or null.
+  pointAt(x, y) {
+    const face = this.faceAt(x, y);
+    if (face < 0) return null;
+    const ndc = new THREE.Vector2((x / this.canvas.clientWidth) * 2 - 1, 1 - (y / this.canvas.clientHeight) * 2);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.camera);
+    const p = this.positions, o = face * 9;
+    const a = new THREE.Vector3(p[o], p[o + 1], p[o + 2]);
+    const b = new THREE.Vector3(p[o + 3], p[o + 4], p[o + 5]);
+    const c = new THREE.Vector3(p[o + 6], p[o + 7], p[o + 8]);
+    const plane = new THREE.Plane().setFromCoplanarPoints(a, b, c);
+    return ray.ray.intersectPlane(plane, new THREE.Vector3()) || a.add(b).add(c).divideScalar(3);
+  }
+
+  // The four planes bounding the screen rectangle, extended through the whole
+  // scene along the view direction. Points inside have n·p + d >= 0.
+  rectPlanes(x0, y0, x1, y1) {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const ax = (Math.min(x0, x1) / w) * 2 - 1, bx = (Math.max(x0, x1) / w) * 2 - 1;
+    const ay = 1 - (Math.max(y0, y1) / h) * 2, by = 1 - (Math.min(y0, y1) / h) * 2;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const un = (x, y, z) => new THREE.Vector3(x, y, z).unproject(cam);
+    const centre = un((ax + bx) / 2, (ay + by) / 2, 0);
+    const edges = [
+      [ax, ay, ax, by],
+      [bx, ay, bx, by],
+      [ax, ay, bx, ay],
+      [ax, by, bx, by],
+    ];
+    return edges.map(([x0, y0, x1, y1]) => {
+      const plane = new THREE.Plane().setFromCoplanarPoints(un(x0, y0, -1), un(x0, y0, 1), un(x1, y1, -1));
+      if (plane.distanceToPoint(centre) < 0) plane.negate();
+      return { normal: plane.normal.toArray(), constant: plane.constant };
+    });
   }
 
   // Renders the model from direction `dir` into a square image, off screen.

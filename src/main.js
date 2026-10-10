@@ -4,6 +4,7 @@ import { parseSTL, writeBinarySTL } from './stl.js';
 import { Viewer } from './viewer.js';
 import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
+import { makeZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -64,15 +65,85 @@ $('sample').addEventListener('click', () =>
   }),
 );
 
+function download(data, name, type = 'model/stl') {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+const baseName = () => state.fileName.replace(/\.stl$/i, '');
+
 $('export').addEventListener('click', () => {
   const { mesh } = state;
-  const data = writeBinarySTL(mesh.positions, mesh.indices);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([data], { type: 'model/stl' }));
-  a.download = state.fileName.replace(/\.stl$/i, '') + '_edited.stl';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  download(writeBinarySTL(mesh.positions, mesh.indices), baseName() + '_edited.stl');
 });
+
+// Each separate shell of the mesh is a part, largest first.
+function partMasks() {
+  const { component, count, sizes } = state.mesh.connectedComponents();
+  const order = [...Array(count).keys()].sort((a, b) => sizes[b] - sizes[a]);
+  return order.map((c) => Uint8Array.from(component, (x) => (x === c ? 1 : 0)));
+}
+
+function partFile(mask, i) {
+  const part = state.mesh.extractFaces(mask);
+  return { name: `${baseName()}_part${i + 1}.stl`, data: new Uint8Array(writeBinarySTL(part.positions, part.indices)) };
+}
+
+$('export-zip').addEventListener('click', () => {
+  const files = partMasks().map(partFile);
+  download(makeZip(files), baseName() + '_parts.zip', 'application/zip');
+});
+
+$('export-each').addEventListener('click', async () => {
+  const files = partMasks().map(partFile);
+  for (const f of files) {
+    download(f.data, f.name);
+    await new Promise((r) => setTimeout(r, 400)); // browsers drop rapid back-to-back downloads
+  }
+});
+
+function renderPartList() {
+  const list = $('part-list');
+  list.innerHTML = '';
+  const masks = partMasks();
+  // Parts with open edges are not watertight.
+  const { offsets, heEdge } = state.mesh.topology();
+  const openFace = new Uint8Array(state.mesh.triangleCount);
+  for (let h = 0; h < heEdge.length; h++) {
+    const e = heEdge[h];
+    if (offsets[e + 1] - offsets[e] !== 2) openFace[(h / 3) | 0] = 1;
+  }
+  masks.forEach((mask, i) => {
+    let tris = 0, open = false;
+    mask.forEach((v, t) => {
+      if (v) {
+        tris++;
+        if (openFace[t]) open = true;
+      }
+    });
+    const li = document.createElement('li');
+    li.title = 'Click to select this part';
+    li.innerHTML = `<span class="name">Part ${i + 1}</span>
+      <span class="meta">${tris.toLocaleString()} tris${open ? ' · <span class="bad">open</span>' : ''}</span>
+      <button title="Download this part">STL</button>`;
+    li.addEventListener('click', (e) => {
+      const faces = [];
+      mask.forEach((v, t) => v && faces.push(t));
+      applyFaces(faces, modeFor(e, 'replace'));
+    });
+    li.querySelector('button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const f = partFile(mask, i);
+      download(f.data, f.name);
+    });
+    list.append(li);
+  });
+  $('export-zip').disabled = $('export-each').disabled = masks.length < 1;
+  $('export-zip').textContent = masks.length > 1 ? `Download all ${masks.length} parts (.zip)` : 'Download part (.zip)';
+}
 
 let dragDepth = 0;
 window.addEventListener('dragenter', (e) => {
@@ -95,16 +166,61 @@ window.addEventListener('drop', (e) => {
 // ---------------------------------------------------------------------------
 // Edits (undoable)
 
+// Runs an undoable geometry change. fn may return a message, or
+// { message, selection } to select faces of the changed mesh afterwards.
 function edit(fn) {
   if (!state.mesh) return;
   const before = state.mesh.snapshot();
-  const message = fn(state.mesh);
-  if (state.mesh.indices === before.indices) return; // nothing changed
-  state.undo.push(before);
-  if (state.undo.length > 50) state.undo.shift();
-  state.redo = [];
-  refresh();
+  const result = fn(state.mesh);
+  const { message, selection } = typeof result === 'object' && result ? result : { message: result };
+  if (state.mesh.indices !== before.indices) {
+    state.undo.push(before);
+    if (state.undo.length > 50) state.undo.shift();
+    state.redo = [];
+    refresh();
+  }
+  if (selection) {
+    state.selection.set(selection);
+    selectionChanged();
+  }
   if (message) toast(message);
+}
+
+// Block tool: cut along the rectangle's edges through the whole model and
+// select the block inside.
+function cutBlock(rect, mode) {
+  const planes = viewer.rectPlanes(rect.x0, rect.y0, rect.x1, rect.y1);
+  const oldSelection = state.selection;
+  edit((mesh) => {
+    const before = mesh.snapshot();
+    const origin = mesh.cutByPlanes(planes); // new face -> face before the cut
+    const inside = mesh.facesInsidePlanes(planes);
+    if (!inside.some((v) => v)) {
+      mesh.restore(before);
+      toast('Nothing inside the rectangle');
+      return;
+    }
+    const selection = new Uint8Array(mesh.triangleCount);
+    for (let t = 0; t < selection.length; t++) {
+      const was = oldSelection[origin ? origin[t] : t];
+      selection[t] = mode === 'replace' ? inside[t] : mode === 'add' ? was | inside[t] : was & !inside[t];
+    }
+    return { selection, message: origin ? 'Cut along the rectangle and selected the block' : 'Selected the block' };
+  });
+}
+
+function splitSelection() {
+  if (!countSelected()) return;
+  const selection = state.selection;
+  edit((mesh) => {
+    const r = mesh.splitOff(selection, { close: $('split-close').checked });
+    if (!r.detached) {
+      toast('The selection is already a separate part');
+      return;
+    }
+    const closed = r.closed ? `, closed ${r.closed} cut face(s)` : '';
+    return { selection, message: `Split into a new part${closed}` };
+  });
 }
 
 function deleteSelected() {
@@ -143,12 +259,16 @@ function redo() {
 }
 
 $('delete').addEventListener('click', deleteSelected);
+$('split').addEventListener('click', splitSelection);
 $('fill').addEventListener('click', closeHoles);
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 $('frame').addEventListener('click', () => viewer.frame());
 $('show-boundary').addEventListener('change', (e) => viewer.setBoundariesVisible(e.target.checked));
 $('show-wire').addEventListener('change', (e) => viewer.setWireframe(e.target.checked));
+for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => viewer.setView(b.dataset.view));
+$('projection').addEventListener('change', (e) => viewer.setProjection(e.target.value));
+$('rotate-mode').addEventListener('change', (e) => viewer.controls.setMode(e.target.value));
 
 // Geometry changed: rebuild everything and clear the selection.
 function refresh({ frame = false } = {}) {
@@ -157,6 +277,7 @@ function refresh({ frame = false } = {}) {
   viewer.setMesh(mesh, state.selection, { frame });
   analyzeObjects();
   updateStats();
+  renderPartList();
   updateButtons();
 }
 
@@ -191,6 +312,7 @@ function updateButtons() {
   const selected = has ? countSelected() : 0;
   $('export').disabled = !has;
   $('delete').disabled = !selected;
+  $('split').disabled = !selected;
   $('fill').disabled = !has || !state.holes;
   $('undo').disabled = !state.undo.length;
   $('redo').disabled = !state.redo.length;
@@ -492,10 +614,10 @@ function setTool(tool) {
 
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
-  viewer.controls.mouseButtons = {
-    LEFT: orbit ? THREE.MOUSE.ROTATE : -1,
-    MIDDLE: THREE.MOUSE.PAN,
-    RIGHT: orbit && state.tool === 'orbit' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+  viewer.controls.buttons = {
+    0: orbit ? 'rotate' : null,
+    1: 'pan',
+    2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
   view.style.cursor = orbit ? 'grab' : state.tool === 'brush' ? 'none' : state.tool === 'object' ? 'pointer' : 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
@@ -549,7 +671,8 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 3) drag.moved = true;
   if (state.tool === 'brush') brushAt(p, drag.mode);
-  if (state.tool === 'box') {
+  if (state.tool === 'box' || state.tool === 'block') {
+    boxRect.classList.toggle('block', state.tool === 'block');
     Object.assign(boxRect.style, {
       display: 'block',
       left: Math.min(p.x, drag.start.x) + 'px',
@@ -572,6 +695,11 @@ canvas.addEventListener('pointerup', (e) => {
   drag = null;
   const tool = state.tool;
 
+  if (tool === 'block') {
+    boxRect.style.display = 'none';
+    if (moved) cutBlock({ x0: start.x, y0: start.y, x1: p.x, y1: p.y }, mode);
+    return;
+  }
   if (tool === 'box') {
     boxRect.style.display = 'none';
     if (!moved) {
@@ -610,7 +738,7 @@ canvas.addEventListener('pointerup', (e) => {
 // ---------------------------------------------------------------------------
 // Keyboard
 
-const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object' };
+const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block' };
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
@@ -639,6 +767,8 @@ window.addEventListener('keydown', (e) => {
     runSelection('grow');
   } else if (e.key === '-') {
     runSelection('shrink');
+  } else if (e.key.toLowerCase() === 's') {
+    splitSelection();
   } else if (e.key.toLowerCase() === 'h') {
     if (state.mesh) closeHoles();
   } else if (e.key.toLowerCase() === 'f') {

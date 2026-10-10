@@ -333,8 +333,11 @@ export class EditableMesh {
   // number of holes filled. Each hole is triangulated by ear clipping in its
   // best-fit plane, falling back to a fan around the hole centre when the
   // hole cannot be flattened cleanly.
-  fillHoles({ maxEdges = Infinity } = {}) {
-    const { loops } = this.boundaryLoops();
+  // `onlyVertices` (a mask over vertices) restricts filling to holes whose rim
+  // lies entirely on those vertices.
+  fillHoles({ maxEdges = Infinity, onlyVertices = null } = {}) {
+    let { loops } = this.boundaryLoops();
+    if (onlyVertices) loops = loops.filter((l) => l.every((v) => onlyVertices[v]));
     const targets = loops.filter((l) => l.length <= maxEdges);
     if (!targets.length) return { filled: 0, added: 0, skipped: loops.length };
 
@@ -361,6 +364,179 @@ export class EditableMesh {
     indices.set(newTris, this.indices.length);
     this._set(positions, indices);
     return { filled: targets.length, added: newTris.length / 3, skipped: loops.length - targets.length };
+  }
+
+  // Splits every triangle crossing the plane n·p + constant = 0 so that no
+  // triangle straddles it. Cut points are shared between neighbouring
+  // triangles, so the mesh stays watertight. Returns the new triangle -> old
+  // triangle mapping, or null when nothing was split.
+  cutByPlane(normal, constant) {
+    const p = this.positions, ind = this.indices, nv = this.vertexCount;
+    const { min, max } = this.bounds();
+    const eps = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1e-6;
+    const dist = new Float64Array(nv);
+    for (let v = 0; v < nv; v++) {
+      const d = normal[0] * p[v * 3] + normal[1] * p[v * 3 + 1] + normal[2] * p[v * 3 + 2] + constant;
+      dist[v] = Math.abs(d) < eps ? 0 : d;
+    }
+    const extra = [];
+    const cutVertex = new Map();
+    const pointOnEdge = (a, b) => {
+      const key = a < b ? a * nv + b : b * nv + a;
+      let id = cutVertex.get(key);
+      if (id === undefined) {
+        const t = dist[a] / (dist[a] - dist[b]);
+        for (let k = 0; k < 3; k++) extra.push(p[a * 3 + k] + t * (p[b * 3 + k] - p[a * 3 + k]));
+        id = nv + extra.length / 3 - 1;
+        cutVertex.set(key, id);
+      }
+      return id;
+    };
+
+    const out = [];
+    const origin = [];
+    let split = 0;
+    for (let t = 0; t < ind.length; t += 3) {
+      const tri = [ind[t], ind[t + 1], ind[t + 2]];
+      const d = tri.map((v) => dist[v]);
+      if ((d[0] >= 0 && d[1] >= 0 && d[2] >= 0) || (d[0] <= 0 && d[1] <= 0 && d[2] <= 0)) {
+        out.push(tri[0], tri[1], tri[2]);
+        origin.push(t / 3);
+        continue;
+      }
+      split++;
+      const above = [], below = [];
+      for (let k = 0; k < 3; k++) {
+        const a = tri[k], b = tri[(k + 1) % 3], da = d[k], db = d[(k + 1) % 3];
+        if (da >= 0) above.push(a);
+        if (da <= 0) below.push(a);
+        if ((da > 0 && db < 0) || (da < 0 && db > 0)) {
+          const m = pointOnEdge(a, b);
+          above.push(m);
+          below.push(m);
+        }
+      }
+      for (const poly of [above, below]) {
+        for (let i = 1; i + 1 < poly.length; i++) {
+          out.push(poly[0], poly[i], poly[i + 1]);
+          origin.push(t / 3);
+        }
+      }
+    }
+    if (!split) return null;
+    const positions = new Float32Array(p.length + extra.length);
+    positions.set(p);
+    positions.set(extra, p.length);
+    this._set(positions, new Uint32Array(out));
+    return Int32Array.from(origin);
+  }
+
+  // Cuts along each plane of a box-like region (inside: n·p + constant >= 0),
+  // skipping planes that only cross the mesh outside the region. Returns the
+  // new triangle -> original triangle mapping, or null if nothing was cut.
+  cutByPlanes(planes) {
+    let origin = null;
+    planes.forEach((plane, i) => {
+      const others = planes.filter((_, j) => j !== i);
+      if (!this._planeCrossesRegion(plane, others)) return;
+      const o = this.cutByPlane(plane.normal, plane.constant);
+      if (o) origin = origin ? Int32Array.from(o, (t) => origin[t]) : o;
+    });
+    return origin;
+  }
+
+  // Does any triangle crossing `plane` reach into the region of `others`?
+  _planeCrossesRegion(plane, others) {
+    const p = this.positions, ind = this.indices;
+    const d = (pl, v) => pl.normal[0] * p[v * 3] + pl.normal[1] * p[v * 3 + 1] + pl.normal[2] * p[v * 3 + 2] + pl.constant;
+    for (let t = 0; t < ind.length; t += 3) {
+      const tri = [ind[t], ind[t + 1], ind[t + 2]];
+      const ds = tri.map((v) => d(plane, v));
+      if (Math.min(...ds) >= 0 || Math.max(...ds) <= 0) continue;
+      if (others.every((pl) => Math.max(...tri.map((v) => d(pl, v))) >= 0)) return true;
+    }
+    return false;
+  }
+
+  // Mask of triangles whose centre is on the inner side of every plane. A
+  // triangle lying exactly on a plane goes with the solid behind it: inside
+  // when it faces out of the region.
+  facesInsidePlanes(planes) {
+    const p = this.positions, ind = this.indices;
+    const normals = this.faceNormals();
+    const { min, max } = this.bounds();
+    const eps = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1e-5;
+    const mask = new Uint8Array(this.triangleCount);
+    for (let t = 0; t < mask.length; t++) {
+      const c = [0, 1, 2].map((k) => (p[ind[t * 3] * 3 + k] + p[ind[t * 3 + 1] * 3 + k] + p[ind[t * 3 + 2] * 3 + k]) / 3);
+      mask[t] = planes.every(({ normal: n, constant }) => {
+        const d = n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + constant;
+        if (Math.abs(d) > eps) return d > 0;
+        return n[0] * normals[t * 3] + n[1] * normals[t * 3 + 1] + n[2] * normals[t * 3 + 2] < 0;
+      })
+        ? 1
+        : 0;
+    }
+    return mask;
+  }
+
+  // Detaches the selected triangles from the rest so they become a separate
+  // part, and (with close) caps the openings this leaves on both sides.
+  splitOff(mask, { close = true } = {}) {
+    const ind = this.indices, nv = this.vertexCount;
+    const inSel = new Uint8Array(nv), inRest = new Uint8Array(nv);
+    for (let t = 0; t < this.triangleCount; t++) {
+      const target = mask[t] ? inSel : inRest;
+      for (let k = 0; k < 3; k++) target[ind[t * 3 + k]] = 1;
+    }
+    const dup = new Int32Array(nv).fill(-1);
+    const extra = [];
+    for (let v = 0; v < nv; v++) {
+      if (!inSel[v] || !inRest[v]) continue;
+      dup[v] = nv + extra.length / 3;
+      extra.push(this.positions[v * 3], this.positions[v * 3 + 1], this.positions[v * 3 + 2]);
+    }
+    if (!extra.length) return { detached: 0, closed: 0 };
+
+    const indices = ind.slice();
+    for (let t = 0; t < this.triangleCount; t++) {
+      if (!mask[t]) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = indices[t * 3 + k];
+        if (dup[v] >= 0) indices[t * 3 + k] = dup[v];
+      }
+    }
+    const positions = new Float32Array(this.positions.length + extra.length);
+    positions.set(this.positions);
+    positions.set(extra, this.positions.length);
+    this._set(positions, indices);
+
+    let closed = 0;
+    if (close) {
+      const seam = new Uint8Array(this.vertexCount);
+      for (let v = 0; v < nv; v++) if (dup[v] >= 0) seam[v] = seam[dup[v]] = 1;
+      closed = this.fillHoles({ onlyVertices: seam }).filled;
+    }
+    return { detached: extra.length / 3, closed };
+  }
+
+  // Compact copy of the selected triangles, e.g. for exporting one part.
+  extractFaces(mask) {
+    const ind = this.indices, p = this.positions;
+    const remap = new Int32Array(this.vertexCount).fill(-1);
+    const positions = [], indices = [];
+    for (let t = 0; t < this.triangleCount; t++) {
+      if (!mask[t]) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = ind[t * 3 + k];
+        if (remap[v] < 0) {
+          remap[v] = positions.length / 3;
+          positions.push(p[v * 3], p[v * 3 + 1], p[v * 3 + 2]);
+        }
+        indices.push(remap[v]);
+      }
+    }
+    return new EditableMesh(new Float32Array(positions), new Uint32Array(indices));
   }
 
   // ---------------------------------------------------------------------------
