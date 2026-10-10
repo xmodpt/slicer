@@ -28,6 +28,8 @@ const norm = (a) => {
 //     length is how far a pin sticks out (a dowel is twice as long)
 //   tolerance: how much wider holes are than pins, in percent
 //   segments: roundness
+//   manual: connector positions picked by the user (3D points on the plane)
+//     instead of automatic ones; each gets a verdict in result.manual
 
 // Looks at what a cut would produce, without changing the mesh.
 export function analyzeCut(mesh, plane, opts = {}) {
@@ -210,6 +212,16 @@ function plan(mesh, ctx, opts) {
   const tol = 1 + tolerance / 100;
   const lowerMask = ctx.upper.map((v) => (v ? 0 : 1));
   const result = { areas: [], pins: [], notes: [], dowelFaces: null };
+  // Manually placed connectors, in plane coordinates, each with a verdict.
+  const manual = opts.manual
+    ? opts.manual.map((p) => {
+        const rel = sub(p, ctx.O);
+        return { point: p, uv: [dot(rel, ctx.U), dot(rel, ctx.V)], ok: false, reason: 'Not on the cut face – place it inside the cut area.' };
+      })
+    : null;
+  if (manual) result.manual = manual;
+  // The cut outlines (3D loops), to draw on the plane.
+  result.outlines = ctx.areas.flatMap((a) => [a.p3, ...a.holes.map((h) => h.p3)]);
 
   ctx.areas.forEach((area, index) => {
     const xs = area.pts.map((p) => p[0]), ys = area.pts.map((p) => p[1]);
@@ -234,7 +246,27 @@ function plan(mesh, ctx, opts) {
     const wall = Math.max(0.6, r * 0.3);
     const need = r * tol + wall;
     const fits = candidates.filter((q) => q.d >= need);
-    if (!fits.length) {
+    let centers, picked = [];
+    if (manual) {
+      // The user's spots on this area: each must keep a wall around its hole
+      // and stay clear of the other connectors.
+      centers = [];
+      for (const m of manual) {
+        if (m.area !== undefined || !inArea(m.uv, area)) continue;
+        m.area = index;
+        m.size = { r, h: 2 * r };
+        const d = distanceToEdges(m.uv, edges);
+        if (others.some((o) => inArea(m.uv, o))) m.reason = 'Another piece of the model overlaps here – the hole would be blocked.';
+        else if (d < need)
+          m.reason = `Too close to the edge: ${Math.max(0, d - r * tol).toFixed(1)} mm of wall left, ${wall.toFixed(1)} mm needed – move it inwards or use a smaller Ø.`;
+        else if (centers.some((c) => Math.hypot(c[0] - m.uv[0], c[1] - m.uv[1]) < 2 * need)) m.reason = 'Too close to another connector – space them further apart.';
+        else {
+          centers.push(m.uv);
+          picked.push(m);
+        }
+      }
+      if (!manual.some((m) => m.area === index)) info.notes.push('No connector placed on this area.');
+    } else if (!fits.length) {
       info.notes.push(
         R < 0.75 * tol + 0.6
           ? `Too thin for connectors (thickest spot ${(2 * R).toFixed(1)} mm) – glue only.`
@@ -243,10 +275,12 @@ function plan(mesh, ctx, opts) {
       return;
     }
 
-    const long = Math.max(w, h);
-    const want = pins === 'auto' ? (long > 30 * r ? 3 : long > 12 * r ? 2 : 1) : Number(pins);
-    const centers = choosePoints(fits, want, 2 * need);
-    if (centers.length < want) info.notes.push(`Room for ${centers.length} of ${want} connectors.`);
+    if (!manual) {
+      const long = Math.max(w, h);
+      const want = pins === 'auto' ? (long > 30 * r ? 3 : long > 12 * r ? 2 : 1) : Number(pins);
+      centers = choosePoints(fits, want, 2 * need);
+      if (centers.length < want) info.notes.push(`Room for ${centers.length} of ${want} connectors.`);
+    }
 
     const L = length > 0 ? length : 3 * r; // pin length / depth per side for dowels
     const clearance = Math.max(L * 0.02, r * 0.1, 0.2);
@@ -267,8 +301,13 @@ function plan(mesh, ctx, opts) {
       else [kind, h] = ['pin', pinLen];
       if (h < r) {
         const thinSide = kind === 'dowel' && downRoom < upRoom ? 'lower' : 'upper';
-        info.notes.push(`Not enough material in the ${thinSide} half for a connector there.`);
-        if (kind === 'pin' && downRoom > upRoom + r) info.notes.push('Flip puts the pins on the other half – it has more room.');
+        const msg = `Not enough material in the ${thinSide} half for a connector there.`;
+        const flipHint = kind === 'pin' && downRoom > upRoom + r ? 'Flip puts the pins on the other half – it has more room.' : '';
+        if (picked[i]) picked[i].reason = `${msg} ${flipHint}`.trim();
+        else {
+          info.notes.push(msg);
+          if (flipHint) info.notes.push(flipHint);
+        }
         return;
       }
       const conn = {
@@ -281,10 +320,13 @@ function plan(mesh, ctx, opts) {
         holeDepth: h * tol + clearance,
       };
       info.connectors.push(conn);
+      if (picked[i]) Object.assign(picked[i], { ok: true, reason: `Fits – ${kind} Ø${(2 * r).toFixed(1)} × ${(kind === 'dowel' ? 2 * h : h).toFixed(1)} mm.` });
       result.pins.push({ kind, diameter: 2 * r, length: kind === 'dowel' ? 2 * h : h, holeDiameter: 2 * r * tol, holeDepth: conn.holeDepth });
     });
   });
 
+  if (manual && (type === 'none' || pins === '0' || pins === 0)) for (const m of manual) m.reason = 'Connector type is “None” – choose Pin or Dowels.';
+  if (manual && opts.manual.length === 0) result.notes.push('Click on the cut face to place connectors.');
   // Overall advice.
   if (ctx.open) result.notes.push(`The model has ${ctx.open} gap(s) along the cut that could not be closed – those spots stay open (try Close holes after cutting).`);
   const kinds = new Set(result.pins.map((p) => p.kind));

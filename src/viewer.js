@@ -215,12 +215,35 @@ export class Viewer {
       const dowel = c.kind === 'dowel';
       const len = dowel ? 2 * c.h : c.h;
       const geo = new THREE.CylinderGeometry(c.r, c.r, len, 24);
-      const mat = new THREE.MeshBasicMaterial({ color: dowel ? 0xc77dff : 0x2fd36e, transparent: true, opacity: 0.85, depthTest: false });
+      const color = c.kind === 'bad' ? 0xe5484d : dowel ? 0xc77dff : 0x2fd36e;
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false });
       const m = new THREE.Mesh(geo, mat);
       m.renderOrder = 9;
       m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
       m.position.set(...c.center3).addScaledVector(n, dowel ? 0 : len / 2);
       this.connectorGroup.add(m);
+    }
+    this.requestRender();
+  }
+
+  // Outline of the cut section (loops of 3D points), drawn over everything so
+  // it shows where the cut face is. null hides it.
+  setCutOutline(loops) {
+    if (this.cutOutline) {
+      this.scene.remove(this.cutOutline);
+      this.cutOutline.geometry.dispose();
+      this.cutOutline = null;
+    }
+    if (loops?.length) {
+      const pts = [];
+      for (const loop of loops) {
+        for (let i = 0; i < loop.length; i++) pts.push(...loop[i], ...loop[(i + 1) % loop.length]);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      this.cutOutline = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true }));
+      this.cutOutline.renderOrder = 8;
+      this.scene.add(this.cutOutline);
     }
     this.requestRender();
   }

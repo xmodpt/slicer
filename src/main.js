@@ -365,6 +365,89 @@ $('projection').addEventListener('change', (e) => viewer.setProjection(e.target.
 $('rotate-mode').addEventListener('change', (e) => viewer.controls.setMode(e.target.value));
 
 // ---------------------------------------------------------------------------
+// Fix model: floating parts and holes, with one-click fixes.
+
+function renderFix() {
+  const box = $('fix-report');
+  box.innerHTML = '';
+  if (!state.mesh) {
+    box.textContent = 'Open a model first.';
+    return;
+  }
+  const s = state.stats || state.mesh.stats();
+  const floating = state.floating || [];
+  const add = (ok, title, text, actions = []) => {
+    const div = document.createElement('div');
+    div.className = 'fix-item ' + (ok ? 'ok' : 'bad');
+    div.innerHTML = '<div class="what"></div><div class="why"></div><div class="row"></div>';
+    div.querySelector('.what').textContent = (ok ? '✓ ' : '⚠ ') + title;
+    div.querySelector('.why').textContent = text;
+    for (const [label, fn, cls] of actions) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      if (cls) b.className = cls;
+      b.addEventListener('click', fn);
+      div.querySelector('.row').append(b);
+    }
+    box.append(div);
+  };
+  if (floating.length) {
+    const tris = floating.reduce((n, p) => n + p.faces.length, 0);
+    add(false, `${floating.length} floating part${floating.length === 1 ? '' : 's'}`,
+      `${tris.toLocaleString()} triangles float in space – not on the plate and not touching anything that is. They would print in mid-air.`,
+      [['Select', () => applyFaces(floatingFaces(), 'replace')], ['Delete them', deleteFloating, 'danger']]);
+  } else add(true, 'No floating parts', 'Every part rests on the plate or touches one that does.');
+  if (s.holes || s.openChains) {
+    add(false, `${s.holes} hole${s.holes === 1 ? '' : 's'} – not solid`,
+      'The surface has openings, so the model is not a closed solid. Slicers may print it wrong or not at all.' + (s.openChains ? ` ${s.openChains} open edge chain(s) can't be closed automatically.` : ''),
+      [['Close holes', () => closeAllHoles(), 'primary']]);
+  } else add(true, 'Closed – no holes', 'The surface is closed all round.');
+  if (s.nonManifoldEdges) add(false, `${s.nonManifoldEdges} non-manifold edge${s.nonManifoldEdges === 1 ? '' : 's'}`, 'Edges shared by more than two triangles (e.g. touching or overlapping pieces). Most slicers cope with this; if not, delete or split the pieces in Edit mode.');
+  const solid = !floating.length && !s.holes && !s.openChains;
+  const p = document.createElement('p');
+  p.className = 'fix-summary ' + (solid ? 'ok' : 'bad');
+  p.textContent = solid ? (s.watertight ? 'The model is solid and ready to print.' : 'No floating parts or holes left.') : 'Not ready yet – fix the items below, or press Fix everything.';
+  box.prepend(p);
+  $('fix-all').disabled = solid;
+}
+
+function deleteFloating() {
+  if (!state.floating?.length) return;
+  applyFaces(floatingFaces(), 'replace');
+  deleteSelected();
+}
+
+function closeAllHoles() {
+  edit((mesh) => {
+    const r = mesh.fillHoles({ maxEdges: Infinity });
+    return r.filled ? `Closed ${r.filled} hole(s) with ${r.added.toLocaleString()} triangles` : 'No holes to close';
+  });
+}
+
+$('fix-check').addEventListener('click', () => {
+  if (!state.mesh) return;
+  updateStats();
+  checkFloating();
+  renderFix();
+  toast('Checked');
+});
+$('fix-all').addEventListener('click', () => {
+  if (!state.mesh) return;
+  const steps = [];
+  if (state.floating?.length) {
+    steps.push(`deleted ${state.floating.length} floating part(s)`);
+    deleteFloating();
+  }
+  if (state.holes || state.stats?.openChains) {
+    const before = state.holes;
+    closeAllHoles();
+    steps.push(`closed ${before} hole(s)`);
+  }
+  renderFix();
+  toast(steps.length ? 'Fixed: ' + steps.join(', ') : 'Nothing to fix');
+});
+
+// ---------------------------------------------------------------------------
 // Models (groups of parts)
 //
 // Every triangle carries the id of the model it belongs to. A model is a set
@@ -553,6 +636,7 @@ function checkFloating() {
   const before = state.floatingFirst || new Set();
   state.floatingFirst = new Set(floating.map((p) => p.faces[0]));
   if (before.size !== state.floatingFirst.size || [...before].some((f) => !state.floatingFirst.has(f))) renderObjectList();
+  if (cardOverride === 'fix') renderFix();
   const box = $('floating-warning');
   box.hidden = !floating.length;
   if (!floating.length) return;
@@ -597,6 +681,7 @@ function refresh({ frame = false } = {}) {
   updatePlacement();
   if (state.tool === 'cut') setCut({});
   if (state.tool === 'scale') fillScale({ force: true });
+  if (cardOverride === 'fix') renderFix();
   updateButtons();
 }
 
@@ -617,6 +702,7 @@ function updateStats() {
   ];
   $('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   state.holes = s.holes;
+  state.stats = s;
 }
 
 function countSelected() {
@@ -1155,6 +1241,7 @@ const CARD_TITLES = {
   move: 'Move',
   rotate: 'Rotate on the plate',
   scale: 'Resize',
+  fix: 'Fix model',
   layflat: 'Lay flat',
   cut: 'Plane cut',
   holes: 'Close holes',
@@ -1191,6 +1278,7 @@ function showCard() {
   for (const b of card.querySelectorAll('.card-body')) b.classList.toggle('shown', b.dataset.card === name);
   for (const o of card.querySelectorAll('[data-mode]')) o.classList.toggle('shown', o.dataset.mode === state.tool);
   for (const b of document.querySelectorAll('#toolrail [data-action="holes"]')) b.classList.toggle('active', cardOverride === 'holes');
+  for (const b of document.querySelectorAll('#toolrail [data-action="fix"]')) b.classList.toggle('active', cardOverride === 'fix');
 }
 
 function setTool(tool, fromMode = false) {
@@ -1220,6 +1308,21 @@ $('card-close').addEventListener('click', () => {
 for (const b of document.querySelectorAll('[data-rail="select"]')) {
   b.addEventListener('click', () => setTool(state.lastSelect || 'object'));
 }
+function openFix() {
+  cardOverride = 'fix';
+  cardClosed = false;
+  showCard();
+  renderFix();
+}
+for (const b of document.querySelectorAll('#toolrail [data-action="fix"]')) {
+  b.addEventListener('click', () => {
+    if (cardOverride === 'fix') {
+      cardOverride = null;
+      showCard();
+    } else openFix();
+  });
+}
+$('floating-fix').addEventListener('click', openFix);
 for (const b of document.querySelectorAll('#toolrail [data-action="holes"]')) {
   b.addEventListener('click', () => {
     cardOverride = cardOverride === 'holes' ? null : 'holes';
@@ -1400,6 +1503,10 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
   if (tool === 'brush' || moved) return;
+  if (tool === 'cut' && manualPlacement() && !e.shiftKey) {
+    manualClick(p, e.ctrlKey || e.metaKey);
+    return;
+  }
 
   const face = viewer.faceAt(p.x, p.y);
   if (face < 0) {
@@ -1713,7 +1820,8 @@ try {
 
 // The cut plane: n·p = offset. `center` (on the plane) is where the orb sits,
 // `u` an in-plane direction that orients the orb's rings.
-const cut = { mode: 'z', normal: [0, 0, 1], offset: 0, center: null, u: [1, 0, 0] };
+const cut = { mode: 'z', normal: [0, 0, 1], offset: 0, center: null, u: [1, 0, 0], manual: [] };
+const manualPlacement = () => $('cut-place').value === 'manual';
 const cutGizmo = new CutGizmo(viewer, () => cutFromGizmo());
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 
@@ -1732,7 +1840,11 @@ function cutRange() {
 function setCut({ mode, normal, offset } = {}) {
   if (!state.mesh) return;
   if (mode) cut.mode = mode;
-  if (normal) cut.normal = normal;
+  if (normal) {
+    // Hand-placed connectors follow small tilts; a new direction clears them.
+    if (cut.manual.length && normal[0] * cut.normal[0] + normal[1] * cut.normal[1] + normal[2] * cut.normal[2] < 0.87) cut.manual = [];
+    cut.normal = normal;
+  }
   const [lo, hi] = cutRange();
   cut.offset = offset ?? (cut.offset > lo && cut.offset < hi ? cut.offset : (lo + hi) / 2);
   orientCutHandle();
@@ -1776,7 +1888,11 @@ function syncCutControls(lo, hi) {
 
 function showCutPlane() {
   const on = state.tool === 'cut' && !!state.mesh;
-  if (!on) viewer.setConnectorPreview(null);
+  if (!on) {
+    viewer.setConnectorPreview(null);
+    viewer.setCutOutline(null);
+    viewer.setCutOutline(null);
+  }
   viewer.setCutPlane(on ? cut : null);
   cutGizmo.update(on ? cut : null, on ? viewer.geometry.boundingSphere.radius : 0);
 }
@@ -1788,8 +1904,56 @@ function cutOptions() {
     diameter: +$('cut-dia').value || 0,
     length: +$('cut-len').value || 0,
     tolerance: Math.max(0, +$('cut-tol').value || 0),
+    manual: manualPlacement() ? cut.manual.map(onCutPlane) : undefined,
   };
 }
+
+// A point moved straight onto the current cut plane.
+function onCutPlane(p) {
+  const n = cut.normal;
+  const d = n[0] * p[0] + n[1] * p[1] + n[2] * p[2] - cut.offset;
+  return [p[0] - d * n[0], p[1] - d * n[1], p[2] - d * n[2]];
+}
+
+// Manual placement: a click on the plane adds a connector there (Ctrl+click
+// removes the nearest one); it is checked at once.
+function manualClick(p, remove) {
+  const ray = viewer.rayAt(p.x, p.y);
+  const n = new THREE.Vector3(...cut.normal);
+  const hit = ray.intersectPlane(new THREE.Plane(n, -cut.offset), new THREE.Vector3());
+  if (!hit) return;
+  const q = hit.toArray();
+  if (remove) {
+    if (!cut.manual.length) return;
+    let best = 0;
+    cut.manual.forEach((m, i) => {
+      const a = onCutPlane(m), b = onCutPlane(cut.manual[best]);
+      if (Math.hypot(a[0] - q[0], a[1] - q[1], a[2] - q[2]) < Math.hypot(b[0] - q[0], b[1] - q[1], b[2] - q[2])) best = i;
+    });
+    cut.manual.splice(best, 1);
+    runCutAnalysis();
+    toast('Connector removed');
+    return;
+  }
+  cut.manual.push(q);
+  runCutAnalysis();
+  const m = state.cutPlan?.manual?.at(-1);
+  if (m) toast(`${m.ok ? '✓' : '✗'} Connector ${cut.manual.length}: ${m.reason}`);
+}
+
+function syncPlacementUI() {
+  const manual = manualPlacement();
+  $('cut-manual').hidden = !manual;
+  $('cut-pins-row').hidden = manual;
+}
+$('cut-place').addEventListener('change', () => {
+  syncPlacementUI();
+  scheduleCutAnalysis();
+});
+$('cut-clear').addEventListener('click', () => {
+  cut.manual = [];
+  scheduleCutAnalysis();
+});
 
 // Step 1/2/3 of the cut guide.
 function setCutStep(step) {
@@ -1821,6 +1985,7 @@ function scheduleCutAnalysis() {
   if (state.mesh.triangleCount > 400000) {
     // Big models: on request only.
     viewer.setConnectorPreview(null);
+    viewer.setCutOutline(null);
     $('cut-analysis').innerHTML = '<button id="cut-analyse">Check connectors for this plane</button>';
     $('cut-analyse').addEventListener('click', () => runCutAnalysis());
     return;
@@ -1840,6 +2005,7 @@ function runCutAnalysis() {
     p.textContent = err.message;
     box.append(p);
     viewer.setConnectorPreview(null);
+    viewer.setCutOutline(null);
     state.cutPlan = null;
     return;
   }
@@ -1870,10 +2036,20 @@ function runCutAnalysis() {
     p.textContent = note;
     box.append(p);
   }
-  viewer.setConnectorPreview(
-    areas.flatMap((a) => a.connectors),
-    cut.normal,
-  );
+  if (result.manual) {
+    result.manual.forEach((m, i) => {
+      const div = document.createElement('div');
+      div.className = 'area ' + (m.ok ? 'ok' : 'none');
+      div.innerHTML = '<div class="what"></div><div class="why"></div>';
+      div.querySelector('.what').textContent = `Connector ${i + 1} ${m.ok ? '✓' : '✗'}`;
+      div.querySelector('.why').textContent = m.reason;
+      box.append(div);
+    });
+  }
+  // Connectors that don't fit are shown in red where they were placed.
+  const bad = (result.manual || []).filter((m) => !m.ok).map((m) => ({ kind: 'bad', center3: m.point, r: m.size?.r || 1.5, h: m.size?.h || 3 }));
+  viewer.setConnectorPreview([...areas.flatMap((a) => a.connectors), ...bad], cut.normal);
+  viewer.setCutOutline(result.outlines);
 }
 
 function doCut() {
@@ -1892,6 +2068,7 @@ function doCut() {
   clearTimeout(analysisTimer); // the plane now sits on the new caps – nothing to analyse until it moves
   $('cut-analysis').innerHTML = '';
   if (!result || state.mesh.triangleCount === before) return;
+  cut.manual = [];
   state.lastCut = {
     normal: [...cut.normal],
     offset: cut.offset,
@@ -1920,6 +2097,7 @@ function doCut() {
     updateExportLabels();
   }
   viewer.setConnectorPreview(null);
+  viewer.setCutOutline(null);
   setCutStep(4);
   const conns = result.areas.flatMap((a) => a.connectors);
   const where = conns.length ? ` ${connectorSides(cut.normal, conns)} The halves still touch, so the connectors sit inside each other – “Pull apart” shows them.` : '';
@@ -2243,6 +2421,8 @@ window.addEventListener('keydown', (e) => {
     doCut();
   } else if (e.key.toLowerCase() === 's') {
     splitSelection();
+  } else if (e.key.toLowerCase() === 'w') {
+    openFix();
   } else if (e.key.toLowerCase() === 'h') {
     if (state.mesh) closeHoles();
   } else if (e.key.toLowerCase() === 'f') {

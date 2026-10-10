@@ -183,3 +183,22 @@ test('messy models: double faces, inner faces and overlapping pieces still get c
     }
   }
 });
+
+test('manual connectors: placed where asked, each checked', () => {
+  const m = mesh(box(0, 0, 0, 60, 20, 40));
+  const plane = { normal: [0, 0, 1], offset: 20 };
+  const opts = { manual: [[15, 10, 20], [45, 10, 20], [59.5, 10, 20], [200, 10, 20], [16, 10, 20]] };
+  const a = analyzeCut(m, plane, opts);
+  const [good1, good2, edge, outside, crowded] = a.manual;
+  assert.ok(good1.ok && good2.ok, good1.reason + ' / ' + good2.reason);
+  assert.ok(!edge.ok && /edge/.test(edge.reason));
+  assert.ok(!outside.ok && /cut face/.test(outside.reason));
+  assert.ok(!crowded.ok && /another connector/.test(crowded.reason));
+  assert.equal(a.pins.length, 2);
+  const r = cutWithPins(m, plane, opts);
+  assert.equal(r.pins.length, 2);
+  // The pins stand where they were placed.
+  const c = r.areas[0].connectors.map((k) => k.center3.map((x) => +x.toFixed(6)));
+  assert.deepEqual(c.sort((p, q) => p[0] - q[0]), [[15, 10, 20], [45, 10, 20]]);
+  for (const p of parts(m)) assert.ok(consistentlyClosed(p));
+});

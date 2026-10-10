@@ -667,7 +667,8 @@ input[type='checkbox'] {
 }
 
 #object-list .name {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 56px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -678,6 +679,9 @@ input[type='checkbox'] {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #object-list button {
@@ -1239,4 +1243,66 @@ kbd {
 
 #toolrail [hidden] {
   display: none;
+}
+
+/* Fix model */
+.fix-report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.fix-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+}
+
+.fix-item.bad {
+  border-left-color: #f2a33a;
+}
+
+.fix-item .what {
+  font-weight: 600;
+}
+
+.fix-item.ok .what {
+  color: var(--accent-2);
+}
+
+.fix-item.bad .what {
+  color: #f6b860;
+}
+
+.fix-item .why {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.fix-item .row:empty {
+  display: none;
+}
+
+.fix-item .row {
+  margin-top: 6px;
+}
+
+.fix-summary {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+.fix-summary.ok {
+  color: var(--accent-2);
+}
+
+.fix-summary.bad {
+  color: #f6b860;
+}
+
+.manual-box {
+  margin: 4px 0 8px;
 }

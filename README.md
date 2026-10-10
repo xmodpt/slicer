@@ -71,6 +71,21 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
 
 Undo/redo covers grouping too.
 
+## Fix model
+
+The wrench button (`W`, in Normal and Edit mode) opens **Fix model**, which
+checks the model and fixes what it finds:
+
+- **Floating parts** – pieces in mid-air, not on the plate and not touching
+  anything that is. *Select* or *Delete them*. (The Objects panel also warns
+  about them, with a *Fix…* button.)
+- **Holes** – openings that keep the model from being a closed solid.
+  *Close holes* closes them all.
+- Non-manifold edges are reported for information.
+
+*Fix everything* does both in one go; *Check again* re-runs the checks. When
+all is well it says the model is solid and ready to print.
+
 ## Layout
 
 - **Top bar:** Open, Sample, **Export ▾** (whole model, selection only, all parts
@@ -100,6 +115,7 @@ The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
 |-----|--------|-----|--------|
 | `1` / `2` / `3` | Normal / Edit / Cut mode | `Tab` | Normal ↔ Edit |
 | `Ctrl+G` | Group parts into one model | `Ctrl+Shift+G` | Ungroup |
+| `W` | Fix model | | |
 | `O` | Select model (Normal) / object (Edit) | `R` | Rotate on plate |
 | `V` | View / orbit | `L` | Lay flat |
 | `T` | Triangle select | `C` | Cut / plane cut (`Enter` cuts) |
@@ -220,6 +236,12 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
       or set by you; holes are 0.5 % wider than the pins (*Hole wider by*) and a
       bit deeper. Thin walls get small connectors; areas too thin get none,
       and holes never break through the other side.
+      **Placement:** *Automatic* picks the spots; *Manual* lets you click on
+      the plane where each connector goes (the cut outline is drawn in yellow).
+      Each one is checked at once – green fits, red doesn't, and the list says
+      why (too close to the edge, off the cut face, too close to another
+      connector, not enough material behind it). Ctrl+click removes the
+      nearest, Shift+click moves the plane, *Remove all* starts over.
    3. *Cut* (or Enter) – both halves are closed and get their connectors.
       The message says which half has the pins and which the holes. Right
       after the cut the halves still touch, so each pin sits inside its hole

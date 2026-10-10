@@ -127,6 +127,9 @@
           <button data-action="split" id="split" data-modes="edit" disabled title="Split the selection into its own part (S)">
             <svg viewBox="0 0 24 24"><path d="M4 4h7v16H4zM14 4h6v16h-6" /></svg><span class="key">S</span>
           </button>
+          <button data-action="fix" id="fix-open" data-modes="normal edit" title="Fix model – floating parts, holes, solid check (W)">
+            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z" /></svg><span class="key">W</span>
+          </button>
           <button data-action="holes" data-modes="edit" title="Close holes (H)">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M8 12h8M12 8v8" /></svg><span class="key">H</span>
           </button>
@@ -261,7 +264,15 @@
               <option value="dowel">Dowels (separate pins)</option>
               <option value="none">None – glue only</option>
             </select></label>
-            <label class="field">Per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+            <label class="field">Placement <select id="cut-place">
+              <option value="auto">Automatic</option>
+              <option value="manual">Manual – click on the cut</option>
+            </select></label>
+            <div id="cut-manual" class="manual-box" hidden>
+              <p class="hint">Click on the plane where a connector should go – each one is checked right away (green fits, red doesn't, with the reason). Ctrl+click removes the nearest; Shift+click moves the plane instead.</p>
+              <button id="cut-clear">Remove all</button>
+            </div>
+            <label class="field" id="cut-pins-row">Per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
             <label class="field">Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" title="0 = automatic" /> Length <input id="cut-len" type="number" min="0" step="0.5" value="0" title="0 = automatic" /></label>
             <label class="field">Hole wider by <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> %</label>
             <div id="cut-analysis" class="analysis"></div>
@@ -287,6 +298,15 @@
             <label class="check"><input id="limit-holes" type="checkbox" /> Only holes up to <input id="max-edges" type="number" min="3" value="100" /> edges</label>
             <button id="fill" class="primary" disabled title="H">Close holes</button>
             <p class="hint">Holes are outlined in red on the model.</p>
+          </div>
+
+          <div class="card-body" data-card="fix">
+            <p class="hint">Checks the model for problems that spoil a print and fixes them.</p>
+            <div id="fix-report" class="fix-report"></div>
+            <div class="row">
+              <button id="fix-check" title="Run the checks again">Check again</button>
+              <button id="fix-all" class="primary" title="Delete floating parts and close all holes">Fix everything</button>
+            </div>
           </div>
 
           <div class="card-body" data-card="orbit">
@@ -345,6 +365,7 @@
               <li><kbd>Del</kbd> = Delete selection</li>
               <li><kbd>S</kbd> = Split into part</li>
               <li><kbd>H</kbd> = Close holes</li>
+              <li><kbd>W</kbd> = Fix model</li>
               <li><kbd>Ctrl+G</kbd> = Group parts</li>
               <li><kbd>Ctrl+Shift+G</kbd> = Ungroup</li>
               <li><kbd>Ctrl+Z</kbd> = Undo</li>
@@ -390,6 +411,7 @@
             <div class="row">
               <button id="floating-select">Select</button>
               <button id="floating-delete" class="danger">Delete</button>
+              <button id="floating-fix" title="Open Fix model">Fix…</button>
               <button id="floating-dismiss" title="Hide this warning">Ignore</button>
             </div>
           </div>
