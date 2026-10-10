@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
+
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 // Listen on all network interfaces (not just localhost) so the app can be
 // opened from other devices, e.g. when it runs on a Raspberry Pi.
@@ -50,6 +53,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
+    define: { __APP_VERSION__: JSON.stringify(version) },
     build: { chunkSizeWarningLimit: 1000 },
     server: { ...network, port: 5173 },
     preview: { ...network, port: 4173 },

@@ -1,6 +1,6 @@
 {
   "name": "stl-mesh-editor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Browser app to open STL files, delete parts of the mesh and close the resulting holes.",
   "type": "module",
@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "vite build && vite preview",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "desktop": "vite build && cd desktop && npm install && npm start",
+    "desktop:win": "vite build && cd desktop && npm install && npm run dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

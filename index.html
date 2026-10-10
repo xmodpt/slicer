@@ -7,9 +7,39 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
+    <!-- Splash screen: shown while the app starts -->
+    <div id="splash">
+      <div class="splash-box">
+        <svg class="logo" viewBox="0 0 24 24"><path class="t" d="M12 2 21 7 12 12 3 7z" /><path class="l" d="M3 7 12 12v10l-9-5z" /><path class="r" d="M21 7v10l-9 5V12z" /><path class="edge" d="M12 2 3 7v10l9 5 9-5V7zM3 7l9 5 9-5M12 12v10" /></svg>
+        <h1>STL Mesh Editor</h1>
+        <p class="splash-version">Version <span class="ver">1.0.0</span></p>
+        <p class="splash-tag">Open · repair · cut · export STL files</p>
+        <div class="splash-bar"><div></div></div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div id="about" class="modal" hidden>
+      <div class="modal-box">
+        <button class="modal-close" id="about-close" title="Close">×</button>
+        <svg class="logo" viewBox="0 0 24 24"><path class="t" d="M12 2 21 7 12 12 3 7z" /><path class="l" d="M3 7 12 12v10l-9-5z" /><path class="r" d="M21 7v10l-9 5V12z" /><path class="edge" d="M12 2 3 7v10l9 5 9-5V7zM3 7l9 5 9-5M12 12v10" /></svg>
+        <h2>STL Mesh Editor</h2>
+        <p class="about-version">Version <span class="ver">1.0.0</span></p>
+        <p>Open STL files, repair them and get them ready to print – in the browser or as a Windows app.</p>
+        <ul class="about-list">
+          <li><b>Normal mode</b> – move, rotate, resize, lay flat and export whole models</li>
+          <li><b>Edit mode</b> – select, delete and split parts, close holes, group and ungroup</li>
+          <li><b>Cut mode</b> – plane cuts with pins, holes or dowels, chosen automatically or placed by hand</li>
+          <li><b>Fix model</b> – find floating parts and holes and fix them in one click</li>
+          <li><b>Ask AI</b> – name the objects in a model (needs an Anthropic API key)</li>
+        </ul>
+        <p class="muted">Press <kbd>?</kbd> for all keyboard shortcuts. Built with Three.js. Everything runs on your computer – your models are never uploaded (except the views sent to the AI when you ask it).</p>
+      </div>
+    </div>
+
     <!-- Top bar: file, export, undo/redo, menus -->
     <header id="topbar">
-      <div class="brand"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" /></svg>STL Mesh Editor</div>
+      <div class="brand" id="brand" title="About STL Mesh Editor" role="button" tabindex="0"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" /></svg>STL Mesh Editor <span id="app-version" class="version"></span></div>
 
       <div class="tb-group">
         <label class="tb-btn" for="file-input" title="Open an STL file (or drop one anywhere)">
@@ -76,6 +106,7 @@
             <label class="check"><input id="auto-place" type="checkbox" checked /> Place on plate when opening</label>
             <label class="check"><input id="split-close" type="checkbox" checked /> Close cut faces when splitting</label>
             <label class="check"><input id="close-on-exit" type="checkbox" checked /> Close holes when leaving Edit mode</label>
+            <button id="about-open" class="menu-link">About STL Mesh Editor…</button>
             <label class="field" title="Lower = split the model into more, smaller sub-objects">Split objects at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
           </div>
         </div>

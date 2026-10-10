@@ -2484,6 +2484,27 @@ function toast(msg) {
 setMode('normal');
 updateButtons();
 
+$('app-version').textContent = 'v' + __APP_VERSION__;
+for (const el of document.querySelectorAll('.ver')) el.textContent = __APP_VERSION__;
+
+// About window: the logo in the top bar, ⚙ → About, or Help → About in the
+// Windows app (which calls window.showAbout).
+function showAbout(show = true) {
+  $('about').hidden = !show;
+}
+window.showAbout = showAbout;
+$('brand').addEventListener('click', () => showAbout());
+$('brand').addEventListener('keydown', (e) => e.key === 'Enter' && showAbout());
+$('about-open').addEventListener('click', () => showAbout());
+$('about-close').addEventListener('click', () => showAbout(false));
+$('about').addEventListener('click', (e) => e.target === $('about') && showAbout(false));
+window.addEventListener('keydown', (e) => e.key === 'Escape' && !$('about').hidden && showAbout(false));
+
+// Splash: shown for a moment while the app starts, then fades out.
+setTimeout(() => {
+  $('splash').classList.add('hide');
+  setTimeout(() => $('splash').remove(), 500);
+}, Math.max(0, 1400 - performance.now()));
 window.__appStarted = true;
 
 // Unsaved edits: ask before the page is closed or navigated away from.

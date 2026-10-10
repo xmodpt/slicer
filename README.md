@@ -3,6 +3,32 @@
 A browser app to open STL files, delete parts of the mesh, and close the model
 again so it's watertight.
 
+**Version 1.0.0**
+
+## Windows app (portable)
+
+A single `.exe` – nothing to install. Download `STL-Mesh-Editor-1.0.0-portable.exe`
+from the repository's **Releases** page (or *Actions → Windows app* → the
+latest run → *Artifacts*) and double-click it.
+
+- Windows may say *"Windows protected your PC"* because the app isn't
+  code-signed: click **More info → Run anyway**.
+- Downloads go through a normal *Save as* dialog (no browser warnings).
+- *Ask AI* (optional): put a file named `.env` next to the .exe containing
+  `ANTHROPIC_API_KEY=sk-ant-...` and restart the app.
+
+**Building it yourself** (on Windows, with Node.js 20+):
+
+```bash
+npm install
+npm run desktop:win      # → desktop/release/STL-Mesh-Editor-<version>-portable.exe
+npm run desktop          # or just run it as a desktop app
+```
+
+The GitHub workflow `.github/workflows/windows-app.yml` builds it on every
+version tag (`git tag v1.0.0 && git push origin v1.0.0`) and attaches the
+.exe to a GitHub Release.
+
 ## Run
 
 ```bash
@@ -295,3 +321,6 @@ holes, parts and whether the mesh is watertight.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.
+- `src/floating.js` – finds parts floating in mid-air.
+- `desktop/` – the Windows app (Electron): `main.cjs` serves the built app
+  from a local web server in its own window.

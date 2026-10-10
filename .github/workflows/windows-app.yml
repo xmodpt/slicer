@@ -1,0 +1,48 @@
+# Builds the Windows portable app (one .exe, nothing to install).
+# - Push a version tag (e.g. v1.0.0): the .exe is attached to a GitHub Release.
+# - Or run it by hand (Actions → Windows app → Run workflow): the .exe is
+#   kept as a download on the run's page.
+name: Windows app
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the web app
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Build the portable .exe
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STL-Mesh-Editor-portable
+          path: desktop/release/*.exe
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/release/*.exe
+          name: STL Mesh Editor ${{ github.ref_name }}
+          body: |
+            **Windows:** download `STL-Mesh-Editor-*-portable.exe` and run it – nothing to install.
+            Windows may show "Windows protected your PC" because the app isn't code-signed: click *More info → Run anyway*.
+            For *Ask AI*, put a `.env` file with `ANTHROPIC_API_KEY=sk-ant-...` next to the .exe.
+
+            **Raspberry Pi / any computer with Node.js:** `git pull`, `npm install`, `npm start`.

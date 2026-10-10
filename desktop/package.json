@@ -1,0 +1,52 @@
+{
+  "name": "stl-mesh-editor-desktop",
+  "productName": "STL Mesh Editor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "STL Mesh Editor as a Windows app",
+  "main": "main.cjs",
+  "scripts": {
+    "prepare-app": "node prepare.mjs",
+    "start": "node prepare.mjs && electron .",
+    "dist": "node prepare.mjs && electron-builder --win portable --x64 --publish never",
+    "dist:linux-host": "node prepare.mjs && electron-builder --win portable --x64 --publish never -c.win.signAndEditExecutable=false"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.stlmesheditor.desktop",
+    "productName": "STL Mesh Editor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "icon.png",
+      "app/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png",
+      "signAndEditExecutable": true
+    },
+    "portable": {
+      "artifactName": "STL-Mesh-Editor-${version}-portable.exe"
+    },
+    "compression": "normal"
+  }
+}
