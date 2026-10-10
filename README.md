@@ -84,15 +84,24 @@ typically a few cents. Everything else in the app works without a key.
    look straight along an axis, and *Camera: Orthographic* removes
    perspective – together they give exact, axis-aligned Block cuts.
 
-   **Objects found:** when a file is opened, the model is analysed and split
-   into likely objects, even if everything is fused into one surface. Shapes
-   are separated where the surface folds inwards (a concave crease, like the
-   ring where a candle meets the cake top); tiny fragments are merged into their
-   neighbours. The list shows each object with its size – hover to highlight it,
-   click to select it (Shift adds, Ctrl removes), ✕ deletes it. If objects come
-   out merged, lower *Split at creases over*; if the model is chopped into too
-   many pieces, raise it. The *Sample* button loads a cake with candles to try it.
-   After *Ask AI*, the list shows the AI's names and groups, items it suggests
+   **Objects (outliner):** each file comes in as one group – the model –
+   with its separate parts and the sub-objects detected in each part beneath
+   it, much like a slicer's or Blender's object list. Sub-objects are found
+   even when everything is fused into one surface: shapes are separated where
+   the surface folds inwards (a concave crease, like the ring where a candle
+   meets the cake top), and tiny fragments are merged into their neighbours.
+   - Click a row to select that model/part/sub-object (Shift adds, Ctrl
+     removes); hovering highlights it in the view.
+   - 👁 hides/shows it like a layer – hidden pieces aren't drawn or picked
+     (they are still saved on export). *Show everything* brings them back.
+   - ▸/▾ collapses or expands a group; double-click a name to rename it.
+     Part names are used for the exported file names.
+   - *STL* downloads a part, ✕ deletes the row's triangles.
+   If sub-objects come out merged, lower *Split at creases over*; if the model
+   is chopped into too many pieces, raise it. *Sample* loads a cake with
+   candles to try it.
+
+   After *Ask AI*, the tree shows the AI's names and groups, items it suggests
    removing are tagged, and clicking one part of a group with the Object tool
    selects the whole group. Hover over a row to read the AI's reasoning.
 3. **Delete** the selection (`Delete` / `Backspace`). Hole rims are outlined in red,
@@ -119,8 +128,9 @@ typically a few cents. Everything else in the app works without a key.
    rest and the cut faces on both sides are closed, so each part is a solid of
    its own. Example – an L-shaped wall: Top view, Orthographic, Block-drag over
    one leg starting at the corner, `S`.
-7. **Export:** *Parts & export* lists every separate part. Download each part
-   as its own STL, all parts in one ZIP, or *Export whole model* as one file.
+7. **Export:** download every part as its own STL, all parts in one ZIP, or
+   *Export whole model* as one file. Single parts download from their row in
+   the outliner.
 
 `Ctrl+Z` / `Ctrl+Y` undo and redo. The *Model* panel shows triangle count,
 holes, parts and whether the mesh is watertight.

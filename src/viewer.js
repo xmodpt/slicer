@@ -133,6 +133,7 @@ export class Viewer {
     this.geometry?.dispose();
 
     const T = mesh.triangleCount;
+    this.hidden = null;
     const positions = mesh.toSoup();
     const faceIds = new Float32Array(T * 3);
     for (let t = 0; t < T; t++) faceIds[t * 3] = faceIds[t * 3 + 1] = faceIds[t * 3 + 2] = t;
@@ -166,6 +167,7 @@ export class Viewer {
   updatePositions(mesh) {
     const attr = this.geometry.getAttribute('position');
     attr.array.set(mesh.toSoup());
+    this._collapseHidden(attr.array);
     attr.needsUpdate = true;
     this.positions = attr.array;
     this.geometry.computeBoundingSphere();
@@ -175,6 +177,25 @@ export class Viewer {
     this.boundaryLines.geometry.computeBoundingSphere();
     this.pickDirty = true;
     this.requestRender();
+  }
+
+  // Hides faces (mask per triangle, or null for none). Hidden triangles are
+  // collapsed to a point on the GPU: not drawn and not pickable.
+  setHidden(mesh, mask) {
+    this.hidden = mask && mask.some((v) => v) ? mask : null;
+    this.updatePositions(mesh);
+  }
+
+  _collapseHidden(arr) {
+    const h = this.hidden;
+    if (!h) return;
+    for (let t = 0; t < h.length; t++) {
+      if (!h[t]) continue;
+      const o = t * 9;
+      arr[o + 3] = arr[o + 6] = arr[o];
+      arr[o + 4] = arr[o + 7] = arr[o + 1];
+      arr[o + 5] = arr[o + 8] = arr[o + 2];
+    }
   }
 
   // Grid on the XY plane through the origin, a bit larger than the model,
@@ -514,6 +535,7 @@ export class Viewer {
     const p = this.positions;
     const out = [];
     for (let t = 0; t < this.triangleCount; t++) {
+      if (this.hidden?.[t]) continue;
       const o = t * 9;
       const x = (p[o] + p[o + 3] + p[o + 6]) / 3, y = (p[o + 1] + p[o + 4] + p[o + 7]) / 3, z = (p[o + 2] + p[o + 5] + p[o + 8]) / 3;
       const cw = m[3] * x + m[7] * y + m[11] * z + m[15];

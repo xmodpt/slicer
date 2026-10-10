@@ -18,6 +18,11 @@ const state = {
   fileName: 'model.stl',
   tool: 'object',
   seg: null, // detected objects, see segment.js
+  hidden: null, // per-face mask of hidden ("layer off") triangles
+  open: new Map(), // outliner rows expanded/collapsed by the user
+  names: new Map(), // renamed sub-objects
+  partNames: [],
+  modelName: null,
   objectColors: [],
   undo: [],
   redo: [],
@@ -80,6 +85,8 @@ async function loadSoup(soup, name) {
   if ($('auto-place').checked) mesh.placeOnPlate();
   state.mesh = mesh;
   state.fileName = name;
+  state.modelName = null;
+  state.open = new Map();
   state.undo = [];
   state.redo = [];
   $('file-name').textContent = name;
@@ -87,6 +94,10 @@ async function loadSoup(soup, name) {
   $('drop-hint').style.display = 'none';
   await stage('Drawing…', 0.78);
   state.selection = new Uint8Array(mesh.triangleCount);
+  state.hidden = null;
+  state.partNames = [];
+  state.names = new Map();
+  $('show-all').hidden = true;
   viewer.setMesh(mesh, state.selection, { frame: true });
   for (const [i, step] of ANALYSIS_STEPS.entries()) {
     await stage(step.label, 0.82 + (i / ANALYSIS_STEPS.length) * 0.18);
@@ -124,7 +135,8 @@ function download(data, name, type = 'model/stl') {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-const baseName = () => state.fileName.replace(/\.stl$/i, '');
+const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'model';
+const baseName = () => safeName(modelName());
 
 $('export').addEventListener('click', () => {
   const { mesh } = state;
@@ -135,7 +147,8 @@ const MAX_PARTS_LISTED = 50;
 
 function partFile(part, i) {
   const m = state.mesh.extractFaceList(part.faces);
-  return { name: `${baseName()}_part${i + 1}.stl`, data: new Uint8Array(writeBinarySTL(m.positions, m.indices)) };
+  const name = state.partNames[i] ? `${baseName()}_${safeName(state.partNames[i])}` : `${baseName()}_part${i + 1}`;
+  return { name: name + '.stl', data: new Uint8Array(writeBinarySTL(m.positions, m.indices)) };
 }
 
 function exportableParts() {
@@ -158,29 +171,7 @@ $('export-each').addEventListener('click', async () => {
 });
 
 function renderPartList() {
-  const list = $('part-list');
-  list.innerHTML = '';
   const parts = (state.parts = state.mesh.parts());
-  parts.slice(0, MAX_PARTS_LISTED).forEach((part, i) => {
-    const li = document.createElement('li');
-    li.title = 'Click to select this part';
-    li.innerHTML = `<span class="name">Part ${i + 1}</span>
-      <span class="meta">${part.faces.length.toLocaleString()} tris${part.open ? ' · <span class="bad">open</span>' : ''}</span>
-      <button title="Download this part">STL</button>`;
-    li.addEventListener('click', (e) => applyFaces(part.faces, modeFor(e, 'replace')));
-    li.querySelector('button').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const f = partFile(part, i);
-      download(f.data, f.name);
-    });
-    list.append(li);
-  });
-  if (parts.length > MAX_PARTS_LISTED) {
-    const li = document.createElement('li');
-    li.className = 'muted';
-    li.textContent = `+ ${parts.length - MAX_PARTS_LISTED} more small pieces` + (parts.length > 500 ? ' – the triangles in this file may not be connected to each other' : '');
-    list.append(li);
-  }
   $('export-zip').disabled = $('export-each').disabled = parts.length < 1;
   $('export-zip').textContent = parts.length > 1 ? `Download all ${parts.length} parts (.zip)` : 'Download part (.zip)';
 }
@@ -333,6 +324,10 @@ function runStep(step) {
 // Geometry changed: rebuild everything and clear the selection.
 function refresh({ frame = false } = {}) {
   const { mesh } = state;
+  state.hidden = null;
+  state.partNames = [];
+  state.names = new Map();
+  $('show-all').hidden = true;
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame });
   ANALYSIS_STEPS.forEach(runStep);
@@ -418,53 +413,217 @@ function objectRows() {
     rows.push({ ids: item.object_ids, name: item.name, suggestion: item.suggestion, title: `${item.description}\n\n${item.reason}` });
     item.object_ids.forEach((id) => covered.add(id));
   }
-  for (const o of objects.slice(0, MAX_LISTED)) {
+  for (const o of objects) {
     if (covered.has(o.id)) continue;
     rows.push({ ids: [o.id], name: o.id === 0 ? 'Main body' : `Object ${o.id}` });
   }
   return rows;
 }
 
+// The outliner: the file as one group, its separate parts, and the detected
+// sub-objects of each part. Rows select (Shift adds, Ctrl removes), highlight
+// on hover, hide/show with the eye, collapse, and rename on double-click.
+const MAX_CHILDREN = 40;
+
 function renderObjectList() {
   const list = $('object-list');
   list.innerHTML = '';
-  const { objects } = state.seg;
-  const note = (text) => {
-    const li = document.createElement('li');
-    li.className = 'note';
-    li.textContent = text;
-    list.append(li);
-  };
-  if (objects.length === 1) {
-    note('Only one object found. Lower the crease angle to split the model further.');
-  }
+  if (!state.mesh || !state.seg) return;
+  const { objects, facesOf } = state.seg;
+  const parts = (state.parts = state.mesh.parts());
+  const partOf = new Int32Array(state.mesh.triangleCount);
+  parts.forEach((part, i) => part.faces.forEach((t) => (partOf[t] = i)));
+
   state.rows = objectRows();
   state.rowOfObject = new Map();
   state.rows.forEach((row, r) => row.ids.forEach((id) => state.rowOfObject.set(id, r)));
-  if (objects.length === 1 && !state.ai) return;
+  const rowsByPart = parts.map(() => []);
+  for (const row of state.rows) rowsByPart[partOf[facesOf(row.ids[0])[0]]].push(row);
 
-  for (const row of state.rows) {
-    const triangles = row.ids.reduce((n, id) => n + objects[id].triangles, 0);
-    const pct = row.ids.reduce((n, id) => n + objects[id].share, 0) * 100;
-    const li = document.createElement('li');
-    li.title = (row.title ? row.title + '\n\n' : '') + 'Click to select (Shift adds, Ctrl removes)';
-    li.innerHTML = `<span class="swatch"></span><span class="name"></span>
-      ${row.suggestion && row.suggestion !== 'keep' ? `<span class="badge ${row.suggestion}">${row.suggestion}</span>` : ''}
-      <span class="meta">${triangles.toLocaleString()} tris · ${pct < 0.1 ? '<0.1' : pct.toFixed(1)}%</span>
-      <button title="Delete">✕</button>`;
-    li.querySelector('.swatch').style.background = '#' + state.objectColors[row.ids[0]].getHexString();
-    li.querySelector('.name').textContent = row.name + (row.ids.length > 1 ? ` (${row.ids.length} parts)` : '');
-    li.addEventListener('mouseenter', () => setHoverObjects(row.ids));
-    li.addEventListener('mouseleave', () => setHoverObjects([]));
-    li.addEventListener('click', (e) => selectObjects(row.ids, modeFor(e, 'replace')));
-    li.querySelector('button').addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectObjects(row.ids, 'replace');
-      deleteSelected();
-    });
-    list.append(li);
+  const allIds = objects.length <= 2000 ? objects.map((o) => o.id) : [];
+  const facesOfRow = (row) => {
+    const out = [];
+    for (const id of row.ids) for (const t of facesOf(id)) out.push(t);
+    return out;
+  };
+
+  addTreeRow(list, {
+    key: 'model',
+    depth: 0,
+    name: modelName(),
+    rename: (v) => (state.modelName = v),
+    meta: `${state.mesh.triangleCount.toLocaleString()} tris`,
+    faces: () => null, // everything
+    hoverIds: allIds,
+    group: true,
+    icon: '◆',
+  });
+  if (!isOpen('model', true)) return;
+
+  const addObjects = (rows, depth) => {
+    for (const row of rows.slice(0, MAX_CHILDREN)) {
+      const triangles = row.ids.reduce((n, id) => n + objects[id].triangles, 0);
+      const key = 'obj:' + row.ids[0];
+      addTreeRow(list, {
+        key,
+        depth,
+        name: state.names.get(key) || row.name + (row.ids.length > 1 ? ` (${row.ids.length} parts)` : ''),
+        rename: (v) => state.names.set(key, v),
+        meta: `${triangles.toLocaleString()} tris`,
+        title: row.title,
+        badge: row.suggestion && row.suggestion !== 'keep' ? row.suggestion : null,
+        swatch: '#' + state.objectColors[row.ids[0]].getHexString(),
+        faces: () => facesOfRow(row),
+        hoverIds: row.ids,
+        remove: true,
+      });
+    }
+    if (rows.length > MAX_CHILDREN) treeNote(list, depth, `+ ${rows.length - MAX_CHILDREN} smaller objects (pick them with the Object tool)`);
+  };
+
+  if (parts.length === 1) {
+    // One piece: its sub-objects sit directly under the model.
+    if (rowsByPart[0].length > 1) addObjects(rowsByPart[0], 1);
+    else treeNote(list, 1, 'No sub-objects found. Lower “Split at creases” to split the model further.');
+    return;
   }
-  if (objects.length > MAX_LISTED) note(`+ ${objects.length - MAX_LISTED} smaller objects (use the Object tool to pick them)`);
+  parts.slice(0, MAX_PARTS_LISTED).forEach((part, i) => {
+    const key = 'part:' + i;
+    const rows = rowsByPart[i];
+    addTreeRow(list, {
+      key,
+      depth: 1,
+      name: partName(i),
+      rename: (v) => (state.partNames[i] = v),
+      meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
+      faces: () => part.faces,
+      hoverIds: rows.flatMap((r) => r.ids),
+      group: rows.length > 1,
+      defaultOpen: parts.length <= 5,
+      icon: '▣',
+      download: () => {
+        const f = partFile(part, i);
+        download(f.data, f.name);
+      },
+      remove: true,
+    });
+    if (rows.length > 1 && isOpen(key, parts.length <= 5)) addObjects(rows, 2);
+  });
+  if (parts.length > MAX_PARTS_LISTED) {
+    treeNote(list, 1, `+ ${parts.length - MAX_PARTS_LISTED} more small pieces` + (parts.length > 500 ? ' – the triangles in this file may not be connected to each other' : ''));
+  }
+}
+
+function isOpen(key, fallback) {
+  return state.open.has(key) ? state.open.get(key) : fallback;
+}
+
+function modelName() {
+  return state.modelName || state.fileName.replace(/\.stl$/i, '');
+}
+
+function partName(i) {
+  return state.partNames[i] || `Part ${i + 1}`;
+}
+
+function treeNote(list, depth, text) {
+  const li = document.createElement('li');
+  li.className = 'note';
+  li.style.paddingLeft = 8 + depth * 16 + 'px';
+  li.textContent = text;
+  list.append(li);
+}
+
+function addTreeRow(list, row) {
+  const li = document.createElement('li');
+  li.className = 'tree-row' + (row.depth === 0 ? ' root' : '');
+  li.style.paddingLeft = 4 + row.depth * 16 + 'px';
+  li.title = (row.title ? row.title + '\n\n' : '') + 'Click to select · Shift adds · Ctrl removes · double-click the name to rename';
+  const faces = () => row.faces() || allFaces();
+  const hidden = isHidden(faces());
+  const open = row.group && isOpen(row.key, row.defaultOpen ?? true);
+  li.innerHTML = `
+    <span class="caret">${row.group ? (open ? '▾' : '▸') : ''}</span>
+    <button class="eye ${hidden ? 'off' : ''}" title="${hidden ? 'Show' : 'Hide'}">${hidden ? '◌' : '👁'}</button>
+    ${row.swatch ? '<span class="swatch"></span>' : `<span class="icon">${row.icon || ''}</span>`}
+    <span class="name"></span>
+    ${row.badge ? `<span class="badge ${row.badge}">${row.badge}</span>` : ''}
+    <span class="meta">${row.meta}</span>
+    ${row.download ? '<button class="act" data-act="download" title="Download as STL">STL</button>' : ''}
+    ${row.remove ? '<button class="act" data-act="remove" title="Delete">✕</button>' : ''}`;
+  if (row.swatch) li.querySelector('.swatch').style.background = row.swatch;
+  const name = li.querySelector('.name');
+  name.textContent = row.name;
+  if (hidden) li.classList.add('hidden-row');
+
+  li.querySelector('.caret').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!row.group) return;
+    state.open.set(row.key, !open);
+    renderObjectList();
+  });
+  li.querySelector('.eye').addEventListener('click', (e) => {
+    e.stopPropagation();
+    setHiddenFaces(faces(), !hidden);
+  });
+  li.addEventListener('mouseenter', () => setHoverObjects(row.hoverIds));
+  li.addEventListener('mouseleave', () => setHoverObjects([]));
+  li.addEventListener('click', (e) => {
+    if (row.depth === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) runSelection('all');
+    else applyFaces(faces(), modeFor(e, 'replace'));
+  });
+  name.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    const input = document.createElement('input');
+    input.className = 'rename';
+    input.value = row.name;
+    name.replaceWith(input);
+    input.focus();
+    input.select();
+    const done = (save) => {
+      if (save && input.value.trim()) row.rename(input.value.trim());
+      renderObjectList();
+    };
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') done(true);
+      if (ev.key === 'Escape') done(false);
+      ev.stopPropagation();
+    });
+    input.addEventListener('blur', () => done(true));
+    input.addEventListener('click', (ev) => ev.stopPropagation());
+  });
+  li.querySelector('[data-act="download"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    row.download();
+  });
+  li.querySelector('[data-act="remove"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyFaces(faces(), 'replace');
+    deleteSelected();
+  });
+  list.append(li);
+}
+
+function allFaces() {
+  return Array.from({ length: state.mesh.triangleCount }, (_, i) => i);
+}
+
+// Hidden faces ("layers" turned off): not drawn, not pickable. Reset when the
+// triangles change (delete, split, close holes…).
+function isHidden(faces) {
+  const h = state.hidden;
+  if (!h || !faces.length) return false;
+  for (const t of faces) if (!h[t]) return false;
+  return true;
+}
+
+function setHiddenFaces(faces, hide) {
+  if (!state.hidden) state.hidden = new Uint8Array(state.mesh.triangleCount);
+  for (const t of faces) state.hidden[t] = hide ? 1 : 0;
+  viewer.setHidden(state.mesh, state.hidden);
+  renderObjectList();
+  const count = state.hidden.reduce((n, v) => n + v, 0);
+  $('show-all').hidden = !count;
 }
 
 // Objects that belong to the same list row as `id` (AI groups several).
@@ -491,6 +650,7 @@ function selectObjects(ids, mode) {
 $('obj-angle').addEventListener('input', (e) => ($('obj-angle-val').textContent = e.target.value + '°'));
 $('obj-angle').addEventListener('change', () => state.mesh && busy(analyzeObjects));
 $('obj-colors').addEventListener('change', () => state.mesh && applyObjectColors());
+$('show-all').addEventListener('click', () => state.mesh && setHiddenFaces(allFaces(), false));
 
 // ---------------------------------------------------------------------------
 // AI analysis: render labelled views, send them to the server (server/ai.js)

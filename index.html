@@ -46,7 +46,7 @@
       </section>
 
       <section>
-        <h2>Objects found</h2>
+        <h2>Objects</h2>
         <label class="option" title="Lower = split the model into more, smaller objects">Split at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
         <label class="option check"><input id="obj-colors" type="checkbox" checked /> Colour by object</label>
         <div class="ai">
@@ -55,7 +55,8 @@
           <p id="ai-summary" class="muted"></p>
           <button id="ai-select-remove" class="wide" hidden>Select everything the AI suggests removing</button>
         </div>
-        <ul id="object-list"></ul>
+        <ul id="object-list" class="tree"></ul>
+        <button id="show-all" class="wide" hidden>Show everything</button>
       </section>
 
       <section>
@@ -82,7 +83,6 @@
 
       <section>
         <h2>Parts &amp; export</h2>
-        <ul id="part-list"></ul>
         <button id="export-zip" class="wide primary" disabled>Download all parts (.zip)</button>
         <button id="export-each" class="wide" disabled>Download each part as its own STL</button>
       </section>
