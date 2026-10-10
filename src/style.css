@@ -1162,3 +1162,45 @@ kbd {
   font-size: 12px;
   color: var(--muted);
 }
+
+.size-grid {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.size-grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.size-grid input {
+  flex: 1;
+}
+
+.ax {
+  width: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ax.x { color: #ff8a86; }
+.ax.y { color: #8fe08f; }
+.ax.z { color: #8fc7ff; }
+
+.mode-chip {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.mode-chip.parts {
+  background: rgba(0, 174, 66, 0.18);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}

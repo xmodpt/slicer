@@ -106,6 +106,7 @@ async function loadSoup(soup, name) {
     runStep(step);
   }
   await stage('Done', 1);
+  if (SELECT_TOOLS.includes(state.tool)) setTool('orbit'); // a freshly opened model is one solid
   updatePlacement();
   if (state.tool === 'cut') setCut({ offset: null });
   updateButtons();
@@ -481,7 +482,7 @@ function analyzeObjects() {
 }
 
 function applyObjectColors() {
-  viewer.setObjects(state.seg.objectOf, $('obj-colors').checked ? state.objectColors : null);
+  viewer.setObjects(state.seg.objectOf, $('obj-colors').checked && state.partsMode ? state.objectColors : null);
   viewer.setSelection(state.selection);
 }
 
@@ -538,9 +539,13 @@ function renderObjectList() {
     meta: `${state.mesh.triangleCount.toLocaleString()} tris`,
     faces: () => null, // everything
     hoverIds: allIds,
-    group: true,
+    group: state.partsMode,
     icon: '◆',
   });
+  if (!state.partsMode) {
+    treeNote(list, 1, 'Shown as one solid. Choose Select (O) to see and pick its parts.');
+    return;
+  }
   if (!isOpen('model', true)) return;
 
   const addObjects = (rows, depth) => {
@@ -869,7 +874,10 @@ function selectionChanged(faces) {
   else viewer.setSelection(state.selection);
   updateButtons();
   clearTimeout(selectionChanged.timer);
-  selectionChanged.timer = setTimeout(updatePlacement, 150); // not on every brush stroke
+  selectionChanged.timer = setTimeout(() => {
+    updatePlacement();
+    if (state.tool === 'scale') fillScale();
+  }, 150); // not on every brush stroke
 }
 
 function applyFaces(faces, mode) {
@@ -915,6 +923,7 @@ const CARD_TITLES = {
   block: 'Block cut & select',
   move: 'Move',
   rotate: 'Rotate on the plate',
+  scale: 'Resize',
   layflat: 'Lay flat',
   cut: 'Plane cut',
   holes: 'Close holes',
@@ -930,6 +939,7 @@ const TOOL_HINTS = {
   block: 'Block: drag a rectangle to cut and select the block inside',
   move: 'Move: drag a part · Shift = up/down · Ctrl = snap · arrows / PgUp / PgDn',
   rotate: 'Rotate: drag on the model to spin it · Shift snaps to 15° · Q / E',
+  scale: 'Resize: type the size in mm or %, or use a preset',
   layflat: 'Lay flat: click the face that should rest on the plate',
   cut: 'Cut: drag the orb (arrow slides, rings tilt) or click the model · Enter cuts',
   orbit: 'View: left-drag rotates, right-drag pans, wheel zooms',
@@ -954,6 +964,19 @@ function showCard() {
 function setTool(tool) {
   state.tool = tool;
   if (SELECT_TOOLS.includes(tool)) state.lastSelect = tool;
+  // The model is one solid; its parts and sub-objects show only while
+  // selecting. The selection stays, so a picked part can be moved or resized.
+  const partsMode = SELECT_TOOLS.includes(tool);
+  if (partsMode !== state.partsMode) {
+    state.partsMode = partsMode;
+    $('view-mode').textContent = partsMode ? 'Parts' : 'Solid';
+    $('view-mode').classList.toggle('parts', partsMode);
+    if (state.mesh && state.seg) {
+      applyObjectColors();
+      renderObjectList();
+    }
+  }
+  if (tool === 'scale') fillScale();
   if (tool === 'cut' && state.mesh) setCut({});
   else showCutPlane();
   setHoverObjects([]);
@@ -1755,12 +1778,85 @@ function cutClick(face, p) {
 }
 
 // ---------------------------------------------------------------------------
+// Resize
+
+let scaleBase = null; // size of the target when the card was filled
+
+function scaleTargetBounds() {
+  const target = moveTarget();
+  const b = target.faces ? state.mesh.bounds(target.faces) : state.mesh.bounds();
+  return { target, size: [0, 1, 2].map((k) => b.max[k] - b.min[k]) };
+}
+
+function fillScale() {
+  if (!state.mesh) return;
+  const { target, size } = scaleTargetBounds();
+  scaleBase = size;
+  $('scale-target').textContent = target.faces
+    ? 'Resizing the selected parts.'
+    : countSelected()
+      ? 'The selection is joined to the rest of the model, so the whole model is resized. Split it (S) first to resize it on its own.'
+      : 'Resizing the whole model.';
+  ['x', 'y', 'z'].forEach((a, k) => ($('scale-' + a).value = size[k].toFixed(2)));
+  $('scale-pct').value = 100;
+}
+
+// Typing one size with "keep proportions" scales the others to match.
+['x', 'y', 'z'].forEach((a, k) => {
+  $('scale-' + a).addEventListener('input', (e) => {
+    if (!scaleBase || !scaleBase[k]) return;
+    const f = +e.target.value / scaleBase[k];
+    if (!(f > 0)) return;
+    if ($('scale-lock').checked) {
+      ['x', 'y', 'z'].forEach((b, j) => j !== k && ($('scale-' + b).value = (scaleBase[j] * f).toFixed(2)));
+      $('scale-pct').value = +(f * 100).toFixed(2);
+    } else {
+      $('scale-pct').value = '';
+    }
+  });
+});
+$('scale-pct').addEventListener('input', (e) => {
+  const f = +e.target.value / 100;
+  if (!scaleBase || !(f > 0)) return;
+  ['x', 'y', 'z'].forEach((a, k) => ($('scale-' + a).value = (scaleBase[k] * f).toFixed(2)));
+});
+
+function applyScale(factors) {
+  if (!state.mesh) return;
+  const { target } = scaleTargetBounds();
+  const com = state.mesh.centerOfMass(target.faces);
+  if (!com || factors.some((f) => !(f > 0)) || factors.every((f) => Math.abs(f - 1) < 1e-9)) return;
+  state.moving = false;
+  transformBurst(() => state.mesh.scale(...factors, [com.center[0], com.center[1], com.minZ], target.vertices));
+  state.moving = false;
+  viewer.updatePlate();
+  viewer.frame();
+  fillScale();
+  const s = scaleBase.map((v) => v.toFixed(1)).join(' × ');
+  toast(`Resized to ${s} mm`);
+}
+
+$('scale-apply').addEventListener('click', () => {
+  if (!scaleBase) return;
+  applyScale(['x', 'y', 'z'].map((a, k) => (scaleBase[k] ? +$('scale-' + a).value / scaleBase[k] : 1)));
+});
+for (const id of ['scale-x', 'scale-y', 'scale-z', 'scale-pct']) {
+  $(id).addEventListener('keydown', (e) => e.key === 'Enter' && $('scale-apply').click());
+}
+for (const b of document.querySelectorAll('[data-scale]')) {
+  b.addEventListener('click', () => {
+    const f = +b.dataset.scale;
+    applyScale([f, f, f]);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Keyboard
 
 const toolKeys = {
   1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat',
   // Letters, easier to remember:
-  v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut', m: 'move',
+  v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut', m: 'move', z: 'scale',
 };
 
 window.addEventListener('keydown', (e) => {
@@ -1859,7 +1955,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
-setTool('object');
+setTool('orbit');
 updateButtons();
 
 window.__appStarted = true;

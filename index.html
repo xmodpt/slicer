@@ -104,6 +104,9 @@
           <button data-tool="rotate" title="Rotate on the plate (R)">
             <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" /></svg><span class="key">R</span>
           </button>
+          <button data-tool="scale" title="Resize (Z)">
+            <svg viewBox="0 0 24 24"><path d="M4 20 20 4M14 4h6v6M4 14v6h6" /></svg><span class="key">Z</span>
+          </button>
           <button data-tool="layflat" title="Lay flat on a face (L)">
             <svg viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4M3 20h18M6 17h12" /></svg><span class="key">L</span>
           </button>
@@ -188,6 +191,25 @@
               <button data-rotate="0,1,0,1" title="Tip 90° around Y">Tip Y 90°</button>
             </div>
             <p class="hint">Drag on the model to spin it on the plate (Shift snaps to 15°).</p>
+          </div>
+
+          <div class="card-body" data-card="scale">
+            <p class="hint" id="scale-target"></p>
+            <div class="size-grid">
+              <label><span class="ax x">X</span><input id="scale-x" type="number" step="0.1" min="0" /> mm</label>
+              <label><span class="ax y">Y</span><input id="scale-y" type="number" step="0.1" min="0" /> mm</label>
+              <label><span class="ax z">Z</span><input id="scale-z" type="number" step="0.1" min="0" /> mm</label>
+            </div>
+            <label class="field">Scale <input id="scale-pct" type="number" step="1" min="0" value="100" /> %</label>
+            <label class="check"><input id="scale-lock" type="checkbox" checked /> Keep proportions</label>
+            <div class="row">
+              <button data-scale="0.5" title="Half size">50%</button>
+              <button data-scale="2" title="Double size">200%</button>
+              <button data-scale="25.4" title="The file was made in inches and loaded tiny">inch → mm</button>
+              <button data-scale="0.0393701" title="The file was made in mm but read as inches">mm → inch</button>
+            </div>
+            <button id="scale-apply" class="primary">Apply size</button>
+            <p class="hint">Resizes around the bottom centre, so it stays on the plate. With separate parts selected, only they change.</p>
           </div>
 
           <div class="card-body" data-card="layflat">
@@ -278,6 +300,7 @@
               <li><kbd>K</kbd> = Block cut &amp; select</li>
               <li><kbd>M</kbd> = Move</li>
               <li><kbd>R</kbd> = Rotate on plate</li>
+              <li><kbd>Z</kbd> = Resize</li>
               <li><kbd>L</kbd> = Lay flat</li>
               <li><kbd>C</kbd> = Cut / plane cut</li>
               <li><kbd>Enter</kbd> = Do the cut</li>
@@ -345,6 +368,7 @@
     </div>
 
     <footer id="statusbar">
+      <span id="view-mode" class="mode-chip" title="Choose Select (O) to work with the model's parts">Solid</span>
       <span id="status-hint"></span>
       <span class="spacer"></span>
       <span id="placement"></span>

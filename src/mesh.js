@@ -139,6 +139,30 @@ export class EditableMesh {
     this._set(p, this.indices);
   }
 
+  // Scales the vertices in `vertexMask` (all when null) by (sx, sy, sz)
+  // around `pivot`. A mirror (negative factor count) flips the triangles so
+  // they keep facing outwards.
+  scale(sx, sy, sz, pivot, vertexMask = null) {
+    const p = this.positions.slice();
+    for (let v = 0; v < this.vertexCount; v++) {
+      if (vertexMask && !vertexMask[v]) continue;
+      p[v * 3] = pivot[0] + (p[v * 3] - pivot[0]) * sx;
+      p[v * 3 + 1] = pivot[1] + (p[v * 3 + 1] - pivot[1]) * sy;
+      p[v * 3 + 2] = pivot[2] + (p[v * 3 + 2] - pivot[2]) * sz;
+    }
+    let indices = this.indices;
+    if (sx * sy * sz < 0) {
+      indices = indices.slice();
+      for (let t = 0; t < this.triangleCount; t++) {
+        const a = indices[t * 3], b = indices[t * 3 + 1], c = indices[t * 3 + 2];
+        if (vertexMask && !(vertexMask[a] && vertexMask[b] && vertexMask[c])) continue;
+        indices[t * 3 + 1] = c;
+        indices[t * 3 + 2] = b;
+      }
+    }
+    this._set(p, indices);
+  }
+
   // Rotates the vertices in `vertexMask` (all when null) by `angle` radians
   // around the line through `pivot` along `axis`.
   rotate(axis, angle, pivot, vertexMask = null) {

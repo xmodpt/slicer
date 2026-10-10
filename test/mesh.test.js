@@ -192,3 +192,16 @@ test('rotate and lay flat', () => {
   up.layFlat([0, 0, 1]);
   assert.ok(Math.abs(up.bounds().min[2]) < 1e-6 && Math.abs(volume(up) - 1) < 1e-6);
 });
+
+test('scale around a pivot', () => {
+  const m = cube();
+  m.scale(2, 3, 0.5, [0, 0, 0]);
+  const b = m.bounds();
+  assert.deepEqual(b.max.map((v) => +v.toFixed(6)), [2, 3, 0.5]);
+  assert.ok(Math.abs(volume(m) - 3) < 1e-6);
+  // Inch to mm
+  const i = cube();
+  i.scale(25.4, 25.4, 25.4, [0.5, 0.5, 0]);
+  assert.ok(Math.abs(i.bounds().min[2]) < 1e-6, 'stays on the plate');
+  assert.ok(Math.abs(volume(i) - 25.4 ** 3) < 1e-2);
+});

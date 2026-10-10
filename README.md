@@ -56,12 +56,12 @@ typically a few cents. Everything else in the app works without a key.
   views, camera, rotation mode, hole edges, wireframe, colour by object),
   **⚙ Settings** (place on plate when opening, close cut faces when splitting,
   sub-object sensitivity) and **✨ AI**.
-- **Tool rail** (left of the 3D view): Select, Block, Move, Rotate, Lay flat,
-  Cut · Split, Close holes, Delete · View. Clicking a tool opens a small card
+- **Tool rail** (left of the 3D view): Select, Block, Move, Rotate, Resize,
+  Lay flat, Cut · Split, Close holes, Delete · View. Clicking a tool opens a small card
   with just that tool's options (× hides it).
 - **Right sidebar:** the object tree (with the floating-parts warning) and
   model info.
-- **Status bar:** a hint for the current tool, the position/size of the model
+- **Status bar:** a *Solid* / *Parts* chip (see below), a hint for the current tool, the position/size of the model
   or selection, and the selection count.
 - **Navigation gizmo** (top right) and the **Shortcuts** box under the `?`.
 
@@ -80,7 +80,7 @@ The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
 | `K` | Block cut & select | `Del` | Delete selection |
 | `P` | Part select | `F` | Frame the model |
 | `G` | Region select | `Q` / `E` | Turn left / right on the plate |
-| `M` | Move part with the mouse | | |
+| `M` | Move part with the mouse | `Z` | Resize |
 | arrows | Move on the plate | `PgUp` / `PgDn` | Move up / down |
 | `Home` | Centre on the plate | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+A` / `Ctrl+I` / `Esc` | All / invert / none | `+` / `−` | Grow / shrink selection |
@@ -124,6 +124,12 @@ Number keys 1–9 and 0 also pick tools.
    look straight along an axis, and *Camera: Orthographic* removes
    perspective – together they give exact, axis-aligned Block cuts.
 
+   **Solid vs. parts view:** an opened model is shown as **one solid** – one
+   colour and a single row in the Objects list. Choosing the *Select* tool
+   (`O`) switches to the **parts view**: the detected parts and sub-objects get
+   their colours and the tree expands so you can pick them. Leaving Select
+   (any other tool) goes back to the solid view; the selection is kept.
+
    **Objects (outliner):** each file comes in as one group – the model –
    with its separate parts and the sub-objects detected in each part beneath
    it, much like a slicer's or Blender's object list. Sub-objects are found
@@ -163,6 +169,11 @@ Number keys 1–9 and 0 also pick tools.
    the plate as you drag left/right – Shift snaps to 15°. The move pad's ⟲ ⟳
    buttons and `Q` / `E` rotate by the chosen angle (5/15/45/90°); *X 90°* /
    *Y 90°* tip it over and set it back on the plate.
+   **Resize:** the *Resize* tool (`Z`) – type the size in mm for X, Y, Z or a
+   percentage; *Keep proportions* scales all axes together. Presets: 50 %,
+   200 %, *inch → mm* (×25.4, for models saved in inches) and *mm → inch*.
+   *Apply size* (or Enter) resizes around the bottom centre, so the model
+   stays on the plate. With split-off parts selected, only they are resized.
    **Lay flat:** the *Lay flat* tool (`0`) – click any face and the model
    turns so that face (with the flat area around it) rests on the plate.
    The whole model turns as one group; to turn only some parts, select them
