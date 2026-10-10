@@ -11,6 +11,12 @@ const HOVER_COLOR = new THREE.Color(0x5cc8ff);
 export class Viewer {
   constructor(container) {
     this.container = container;
+    if (!document.createElement('canvas').getContext('webgl2')) {
+      throw new Error(
+        'This browser has no WebGL 2, which the 3D view needs. Turn on hardware acceleration ' +
+          '(Chrome: Settings → System → "Use graphics acceleration"), check chrome://gpu, or try another browser/computer.',
+      );
+    }
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);

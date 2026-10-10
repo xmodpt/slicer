@@ -28,12 +28,22 @@ export default defineConfig(({ mode }) => {
       });
   };
 
+  // Never let browsers keep an old index.html: after an update it would point
+  // to script files that no longer exist (the hashed assets can be cached).
+  const noCachePage = (req, res, next) => {
+    const path = req.url.split('?')[0];
+    if (path === '/' || path.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    next();
+  };
+
   const aiPlugin = {
     name: 'ai-analysis',
     configureServer(server) {
+      server.middlewares.use(noCachePage);
       server.middlewares.use(aiHandler);
     },
     configurePreviewServer(server) {
+      server.middlewares.use(noCachePage);
       server.middlewares.use(aiHandler);
     },
   };

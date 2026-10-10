@@ -116,8 +116,43 @@
       <div id="box-rect"></div>
       <div id="busy">Working…</div>
       <div id="toast"></div>
+      <div id="fatal" hidden>
+        <strong>Something went wrong</strong>
+        <div class="msgs"></div>
+        <button onclick="this.parentNode.hidden = true">Close</button>
+      </div>
     </main>
 
+    <script>
+      // Shows errors that would otherwise fail silently: the app's code not
+      // loading (e.g. a stale cached page after an update), a startup crash,
+      // or no WebGL 2 in this browser.
+      (function () {
+        function show(msg) {
+          var box = document.getElementById('fatal');
+          box.hidden = false;
+          var p = document.createElement('p');
+          p.textContent = msg;
+          box.querySelector('.msgs').appendChild(p);
+        }
+        window.__showFatal = show;
+        window.addEventListener(
+          'error',
+          function (e) {
+            var t = e.target;
+            if (t && t !== window && (t.src || t.href)) show('Could not load ' + (t.src || t.href) + ' – reload the page with Ctrl+Shift+R.');
+            else if (e.message) show(e.message);
+          },
+          true,
+        );
+        window.addEventListener('unhandledrejection', function (e) {
+          show(String((e.reason && e.reason.message) || e.reason));
+        });
+        setTimeout(function () {
+          if (!window.__appStarted) show('The app did not start. Reload the page with Ctrl+Shift+R; if this stays, send the messages above.');
+        }, 6000);
+      })();
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

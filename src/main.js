@@ -32,6 +32,9 @@ async function busy(fn) {
   } catch (err) {
     console.error(err);
     toast(err.message || String(err));
+    const name = $('file-name');
+    name.textContent = 'Error: ' + (err.message || String(err));
+    name.classList.add('error');
   } finally {
     $('busy').style.display = 'none';
   }
@@ -45,6 +48,7 @@ function loadSoup(soup, name) {
   state.undo = [];
   state.redo = [];
   $('file-name').textContent = name;
+  $('file-name').classList.remove('error');
   $('drop-hint').style.display = 'none';
   refresh({ frame: true });
 }
@@ -275,9 +279,15 @@ function refresh({ frame = false } = {}) {
   const { mesh } = state;
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame });
-  analyzeObjects();
-  updateStats();
-  renderPartList();
+  // The model is on screen now; a failing analysis step must not hide it.
+  for (const step of [analyzeObjects, updateStats, renderPartList]) {
+    try {
+      step();
+    } catch (err) {
+      console.error(err);
+      window.__showFatal?.(`${step.name} failed: ${err.message}`);
+    }
+  }
   updateButtons();
 }
 
@@ -805,3 +815,5 @@ function toast(msg) {
 
 setTool('object');
 updateButtons();
+
+window.__appStarted = true;

@@ -448,3 +448,30 @@ body.dragging #view::after {
   border: 2px solid #5cc8ff;
   background: rgba(92, 200, 255, 0.12);
 }
+
+#fatal {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  background: #3a1d22;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 12px 16px;
+  z-index: 10;
+}
+
+#fatal p {
+  margin: 6px 0;
+  word-break: break-word;
+}
+
+#fatal button {
+  margin-top: 6px;
+}
+
+#file-name.error {
+  color: #ff8a8e;
+}
