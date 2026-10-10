@@ -85,3 +85,18 @@ test('a plane that misses the model is rejected and leaves it unchanged', () => 
   assert.throws(() => cutWithPins(m, { normal: [0, 0, 1], offset: 50 }), /does not cut/);
   assert.equal(m.triangleCount, tris);
 });
+
+test('a tilted plane cut gives two closed halves with a pin', () => {
+  const m = mesh(box(0, 0, 0, 30, 30, 40));
+  const n = [0.3, -0.2, 1];
+  const l = Math.hypot(...n);
+  const normal = n.map((x) => x / l);
+  const centre = [15, 15, 20];
+  const offset = normal[0] * centre[0] + normal[1] * centre[1] + normal[2] * centre[2];
+  const r = cutWithPins(m, { normal, offset }, { pins: 1, diameter: 4, length: 6 });
+  assert.equal(r.pins.length, 1);
+  const ps = parts(m);
+  assert.equal(ps.length, 2);
+  for (const p of ps) assert.ok(consistentlyClosed(p));
+  assert.ok(Math.abs(volume(m) - 36000) < 15, `volume ${volume(m)}`); // pin ≈ hole
+});

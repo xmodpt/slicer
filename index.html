@@ -7,242 +7,327 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <aside id="panel">
-      <h1>STL Mesh Editor</h1>
+    <!-- Top bar: file, export, undo/redo, menus -->
+    <header id="topbar">
+      <div class="brand"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" /></svg>STL Mesh Editor</div>
 
-      <section>
-        <h2>File</h2>
-        <div class="row">
-          <label class="button primary" for="file-input">Open STL…</label>
-          <input id="file-input" type="file" accept=".stl" hidden />
-          <button id="sample">Sample</button>
-        </div>
-        <button id="export" class="wide" disabled>Export whole model</button>
-        <div id="file-name" class="muted">No file loaded – drop an .stl anywhere.</div>
-        <label class="option check"><input id="auto-place" type="checkbox" checked /> Place on plate when opening (centre of mass at 0,0, bottom at Z=0)</label>
-      </section>
-
-      <section>
-        <h2>Select tool</h2>
-        <div class="tools" id="tools">
-          <button data-tool="object" title="Hover to preview, click to select a whole detected object (O)">Object<span class="key">O</span></button>
-          <button data-tool="orbit" title="Rotate the view with the left mouse button (V)">Orbit<span class="key">V</span></button>
-          <button data-tool="click" title="Click triangles (T)">Triangle<span class="key">T</span></button>
-          <button data-tool="brush" title="Paint over visible triangles (B)">Brush<span class="key">B</span></button>
-          <button data-tool="box" title="Drag a rectangle (X)">Box<span class="key">X</span></button>
-          <button data-tool="block" title="Drag a rectangle to cut the model along its edges and select the block inside (K)">Block<span class="key">K</span></button>
-          <button data-tool="part" title="Click to select a whole connected part (P)">Part<span class="key">P</span></button>
-          <button data-tool="region" title="Click to select a smooth/flat region (G)">Region<span class="key">G</span></button>
-          <button data-tool="move" title="Drag a part to move it on the plate; Shift = up/down, Ctrl = snap to the step (M)">Move<span class="key">M</span></button>
-          <button data-tool="rotate" title="Drag on the model to rotate it on the plate; Shift snaps to 15° (R)">Rotate<span class="key">R</span></button>
-          <button data-tool="layflat" title="Click a face to lay the model flat on it (L)">Lay flat<span class="key">L</span></button>
-          <button data-tool="cut" title="Cut the model with a plane, close both halves and add glue pins (C)">Cut<span class="key">C</span></button>
-        </div>
-        <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
-        <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
-        <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
-        <p class="option hint" data-for="move">Drag a part to slide it across the plate under the mouse – it gets selected if it wasn't. Hold Shift to move it up/down, Ctrl to snap to the move step. A selection joined to the rest moves the whole model; Split it first. Dragging on empty space rotates the view.</p>
-        <p class="option hint" data-for="rotate">Drag left/right on the view to spin the model (or a selected split-off part) around its centre on the plate. Hold Shift to snap to 15°. Q / E rotate by the step set on the move pad.</p>
-        <p class="option hint" data-for="layflat">Click a face of the model: the whole model turns as one group so that face (and the flat area around it) lies on the plate. To turn only some parts, select them first and click a face on them.</p>
-        <div class="option cut-planes" data-for="cut">Plane
-          <button data-plane="x" title="Cut across X">X</button><button data-plane="y" title="Cut across Y">Y</button><button data-plane="z" class="active" title="Horizontal cut">Z</button><button data-plane="face" title="Parallel to a face you click">Face</button>
-        </div>
-        <label class="option" data-for="cut">At <input id="cut-pos" type="range" step="any" /> <input id="cut-pos-num" type="number" step="0.1" /> mm</label>
-        <label class="option" data-for="cut">Pins per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-        <label class="option" data-for="cut">Pin Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" /> length <input id="cut-len" type="number" min="0" step="0.5" value="0" /> mm</label>
-        <label class="option" data-for="cut">Hole tolerance <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> % wider</label>
-        <div class="option row" data-for="cut"><button id="cut-flip" title="Swap which half gets the pins and which the holes">Flip side</button><button id="cut-go" class="primary" title="Enter">Cut</button></div>
-        <p class="option hint" data-for="cut">Pick a plane, then click the model or use the slider to place it (0 = automatic pin size). The cut closes both halves and adds pins on the lower half and matching holes in the upper half – Flip swaps them. Then move the halves apart and export them as separate parts.</p>
-        <p class="option hint" data-for="block">Drag a rectangle: the model is cut along its edges, all the way through, and the block inside is selected. Use a straight view (Top, Front…) for straight cuts, then <b>Split</b> it into its own part.</p>
-        <p class="hint">Shift = add · Ctrl = remove · left-drag on empty space (any tool but Box/Block), left-drag with Object/Triangle/Part/Region, or right-drag rotates the view · middle-drag or Shift+right-drag pans · wheel zooms to the cursor · side buttons zoom · double-click sets the rotation centre · <b>?</b> all shortcuts</p>
-      </section>
-
-      <section>
-        <h2>Objects</h2>
-        <label class="option" title="Lower = split the model into more, smaller objects">Split at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
-        <label class="option check"><input id="obj-colors" type="checkbox" checked /> Colour by object</label>
-        <div class="ai">
-          <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
-          <button id="ai-run" class="wide">Ask AI to identify objects</button>
-          <p id="ai-summary" class="muted"></p>
-          <button id="ai-select-remove" class="wide" hidden>Select everything the AI suggests removing</button>
-        </div>
-        <div id="floating-warning" class="warning" hidden>
-          <p id="floating-text"></p>
-          <div class="row">
-            <button id="floating-select">Select them</button>
-            <button id="floating-delete" class="danger">Delete them</button>
-            <button id="floating-dismiss" title="Hide this warning">Ignore</button>
+      <div class="tb-group">
+        <label class="tb-btn" for="file-input" title="Open an STL file (or drop one anywhere)">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>Open
+        </label>
+        <input id="file-input" type="file" accept=".stl" hidden />
+        <button class="tb-btn" id="sample" title="Load a sample model (cake with candles)">
+          <svg viewBox="0 0 24 24"><path d="M4 11h16v9H4zM8 11V6M12 11V4M16 11V6" /></svg>Sample
+        </button>
+        <div class="menu">
+          <button class="tb-btn" data-menu title="Export STL files">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 19h16" /></svg>Export<span class="caret">▾</span>
+          </button>
+          <div class="menu-panel">
+            <label class="check"><input id="export-selected" type="checkbox" /> Only the selected part(s)</label>
+            <button id="export" disabled>Export whole model</button>
+            <button id="export-zip" disabled>Download all parts (.zip)</button>
+            <button id="export-each" disabled>Download each part as its own STL</button>
           </div>
         </div>
-        <ul id="object-list" class="tree"></ul>
-        <button id="show-all" class="wide" hidden>Show everything</button>
-      </section>
-
-      <section>
-        <h2>Selection</h2>
-        <div class="row">
-          <button id="sel-all" title="Ctrl+A">All</button>
-          <button id="sel-none" title="Esc">None</button>
-          <button id="sel-invert" title="Ctrl+I">Invert</button>
-        </div>
-        <div class="row">
-          <button id="sel-grow" title="+">Grow</button>
-          <button id="sel-shrink" title="-">Shrink</button>
-        </div>
-        <button id="delete" class="wide danger" disabled title="Delete">Delete selected</button>
-        <button id="split" class="wide" disabled title="S">Split selection into new part</button>
-        <label class="option check"><input id="split-close" type="checkbox" checked /> Close the cut faces when splitting</label>
-      </section>
-
-      <section>
-        <h2>Close model</h2>
-        <label class="option check"><input id="limit-holes" type="checkbox" /> Only holes up to <input id="max-edges" type="number" min="3" value="100" /> edges</label>
-        <button id="fill" class="wide primary" disabled title="H">Close holes</button>
-      </section>
-
-      <section>
-        <h2>Parts &amp; export</h2>
-        <label class="option check"><input id="export-selected" type="checkbox" /> Only export the selected part(s)</label>
-        <button id="export-zip" class="wide primary" disabled>Download all parts (.zip)</button>
-        <button id="export-each" class="wide" disabled>Download each part as its own STL</button>
-      </section>
-
-      <section>
-        <h2>View</h2>
-        <div class="views">
-          <button data-view="iso">Iso</button>
-          <button data-view="top">Top</button>
-          <button data-view="front">Front</button>
-          <button data-view="right">Right</button>
-          <button data-view="left">Left</button>
-          <button data-view="back">Back</button>
-          <button data-view="bottom">Bottom</button>
-        </div>
-        <label class="option">Camera <select id="projection"><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
-        <label class="option">Rotate <select id="rotate-mode"><option value="free">Free (all directions)</option><option value="turntable">Turntable (Z stays up)</option></select></label>
-        <label class="option check"><input id="show-boundary" type="checkbox" checked /> Highlight hole edges</label>
-        <label class="option check"><input id="show-wire" type="checkbox" /> Wireframe</label>
-        <div class="row">
-          <button id="frame" title="F">Frame model</button>
-          <button id="undo" title="Ctrl+Z" disabled>Undo</button>
-          <button id="redo" title="Ctrl+Y" disabled>Redo</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>Model</h2>
-        <dl id="stats"></dl>
-      </section>
-    </aside>
-
-    <main id="view">
-      <div id="drop-hint">Open or drop an STL file to start</div>
-      <div id="brush-cursor"></div>
-      <div id="box-rect"></div>
-      <div id="busy">
-        <span id="busy-label">Working…</span>
-        <div id="busy-bar" hidden><div id="busy-fill"></div><span id="busy-pct">0%</span></div>
       </div>
-      <div id="angle-readout" hidden></div>
-      <div id="joystick" hidden>
-        <div class="pads">
-          <div class="pad">
-            <button data-move="0,1,0" class="n" title="Move +Y">Y+</button>
-            <button data-move="-1,0,0" class="w" title="Move −X">X−</button>
-            <button id="move-center" class="c" title="Centre on the plate: centre of mass to X=Y=0, bottom to Z=0 (Home)">⌂</button>
-            <button data-move="1,0,0" class="e" title="Move +X">X+</button>
-            <button data-move="0,-1,0" class="s" title="Move −Y">Y−</button>
-          </div>
-          <div class="zcol">
-            <button data-move="0,0,1" title="Move up (PageUp)">Z+</button>
-            <button id="move-drop" title="Drop onto the plate (bottom to Z=0)">⤓</button>
-            <button data-move="0,0,-1" title="Move down (PageDown)">Z−</button>
+
+      <div class="tb-group">
+        <button class="tb-btn icon" id="undo" title="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg></button>
+        <button class="tb-btn icon" id="redo" title="Redo (Ctrl+Y)" disabled><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></svg></button>
+      </div>
+
+      <div id="file-name" class="file-name">No file loaded</div>
+
+      <div class="tb-group right">
+        <div class="menu">
+          <button class="tb-btn" data-menu title="View options">
+            <svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>View<span class="caret">▾</span>
+          </button>
+          <div class="menu-panel">
+            <div class="views">
+              <button data-view="iso">Iso</button>
+              <button data-view="top">Top</button>
+              <button data-view="front">Front</button>
+              <button data-view="right">Right</button>
+              <button data-view="left">Left</button>
+              <button data-view="back">Back</button>
+              <button data-view="bottom">Bottom</button>
+              <button id="frame" title="F">Frame</button>
+            </div>
+            <label class="field">Camera <select id="projection"><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
+            <label class="field">Rotate <select id="rotate-mode"><option value="free">Free (all directions)</option><option value="turntable">Turntable (Z up)</option></select></label>
+            <label class="check"><input id="show-boundary" type="checkbox" checked /> Highlight hole edges</label>
+            <label class="check"><input id="show-wire" type="checkbox" /> Wireframe</label>
+            <label class="check"><input id="obj-colors" type="checkbox" checked /> Colour by object</label>
           </div>
         </div>
-        <div class="steps">
-          Step <button data-step="0.1">0.1</button><button data-step="1" class="active">1</button><button data-step="10">10</button> mm
+        <div class="menu">
+          <button class="tb-btn icon" data-menu title="Settings">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+          </button>
+          <div class="menu-panel">
+            <label class="check"><input id="auto-place" type="checkbox" checked /> Place on plate when opening</label>
+            <label class="check"><input id="split-close" type="checkbox" checked /> Close cut faces when splitting</label>
+            <label class="field" title="Lower = split the model into more, smaller sub-objects">Split objects at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
+          </div>
         </div>
-        <div class="rotate-row">
-          <button data-rotate="0,0,1,1" title="Rotate anticlockwise around Z (Q)">⟲</button>
-          <button data-rotate="0,0,1,-1" title="Rotate clockwise around Z (E)">⟳</button>
-          <span class="angles"><button data-angle="5">5</button><button data-angle="15" class="active">15</button><button data-angle="45">45</button><button data-angle="90">90</button>°</span>
-        </div>
-        <div class="rotate-row">
-          <button data-rotate="1,0,0,1" title="Tip 90° around X">X 90°</button>
-          <button data-rotate="0,1,0,1" title="Tip 90° around Y">Y 90°</button>
-          <button id="lay-flat" title="Then click a face to lay it on the plate (0)">Lay flat…</button>
-        </div>
-        <div id="placement"></div>
-      </div>
-      <button id="help-open" title="Keyboard shortcuts (?)">?</button>
-      <div id="help" hidden>
-        <div class="help-head">
-          <h3>Shortcuts</h3>
-          <button id="help-close" title="Close (Esc)">×</button>
-        </div>
-        <div class="help-body">
-          <h4>Tools</h4>
-          <ul class="keys">
-            <li><kbd>O</kbd> = Object select</li>
-            <li><kbd>V</kbd> = View / orbit</li>
-            <li><kbd>T</kbd> = Triangle select</li>
-            <li><kbd>B</kbd> = Brush select</li>
-            <li><kbd>X</kbd> = Box select</li>
-            <li><kbd>K</kbd> = Block cut &amp; select</li>
-            <li><kbd>P</kbd> = Part select</li>
-            <li><kbd>G</kbd> = Region select</li>
-            <li><kbd>M</kbd> = Move part with the mouse</li>
-            <li><kbd>R</kbd> = Rotate on plate</li>
-            <li><kbd>L</kbd> = Lay flat</li>
-            <li><kbd>C</kbd> = Cut / plane cut</li>
-            <li><kbd>Enter</kbd> = Do the cut</li>
-          </ul>
-          <h4>Edit</h4>
-          <ul class="keys">
-            <li><kbd>Del</kbd> = Delete selection</li>
-            <li><kbd>S</kbd> = Split into part</li>
-            <li><kbd>H</kbd> = Close holes</li>
-            <li><kbd>Ctrl+Z</kbd> = Undo</li>
-            <li><kbd>Ctrl+Y</kbd> = Redo</li>
-          </ul>
-          <h4>Selection</h4>
-          <ul class="keys">
-            <li><kbd>Ctrl+A</kbd> = Select all</li>
-            <li><kbd>Ctrl+I</kbd> = Invert</li>
-            <li><kbd>Esc</kbd> = Select none</li>
-            <li><kbd>+</kbd> / <kbd>−</kbd> = Grow / shrink</li>
-            <li><kbd>Shift</kbd>+click = Add</li>
-            <li><kbd>Ctrl</kbd>+click = Remove</li>
-          </ul>
-          <h4>Move &amp; rotate</h4>
-          <ul class="keys">
-            <li><kbd>← → ↑ ↓</kbd> = Move on plate</li>
-            <li><kbd>PgUp</kbd> / <kbd>PgDn</kbd> = Up / down</li>
-            <li><kbd>Shift</kbd>+move = 10× step</li>
-            <li><kbd>Home</kbd> = Centre on plate</li>
-            <li><kbd>Q</kbd> / <kbd>E</kbd> = Turn left / right</li>
-          </ul>
-          <h4>View</h4>
-          <ul class="keys">
-            <li><kbd>F</kbd> = Frame model</li>
-            <li>Left-drag (empty space) = Rotate</li>
-            <li>Right-drag = Rotate</li>
-            <li>Middle-drag = Pan</li>
-            <li>Wheel = Zoom</li>
-            <li>Double-click = Rotation centre</li>
-            <li><kbd>?</kbd> = Show / hide this box</li>
-          </ul>
-          <p class="muted">Number keys 1–9, 0 also pick tools.</p>
+        <div class="menu">
+          <button class="tb-btn ai" data-menu title="Let AI name the objects and suggest what to remove">
+            <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>AI
+          </button>
+          <div class="menu-panel wide">
+            <p class="menu-title">Identify objects with AI</p>
+            <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
+            <button id="ai-run" class="primary">Ask AI to identify objects</button>
+            <p id="ai-summary" class="muted"></p>
+            <button id="ai-select-remove" hidden>Select everything the AI suggests removing</button>
+          </div>
         </div>
       </div>
-      <div id="toast"></div>
-      <div id="fatal" hidden>
-        <strong>Something went wrong</strong>
-        <div class="msgs"></div>
-        <button onclick="this.parentNode.hidden = true">Close</button>
-      </div>
-    </main>
+    </header>
+
+    <div id="app">
+      <main id="view">
+        <!-- Tool rail (left) -->
+        <nav id="toolrail">
+          <button data-rail="select" title="Select (O) – object, triangle, brush, box, part, region">
+            <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z" /></svg><span class="key">O</span>
+          </button>
+          <button data-tool="block" title="Block cut-select (K)">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 2" /><path d="M9 4v16" /></svg><span class="key">K</span>
+          </button>
+          <span class="sep"></span>
+          <button data-tool="move" title="Move (M)">
+            <svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3" /></svg><span class="key">M</span>
+          </button>
+          <button data-tool="rotate" title="Rotate on the plate (R)">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" /></svg><span class="key">R</span>
+          </button>
+          <button data-tool="layflat" title="Lay flat on a face (L)">
+            <svg viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4M3 20h18M6 17h12" /></svg><span class="key">L</span>
+          </button>
+          <button data-tool="cut" title="Plane cut with connector pins (C)">
+            <svg viewBox="0 0 24 24"><path d="M3 14h18" stroke-dasharray="3 2" /><path d="M6 4h12v6H6zM6 18h12v3H6z" /></svg><span class="key">C</span>
+          </button>
+          <span class="sep"></span>
+          <button data-action="split" id="split" disabled title="Split the selection into its own part (S)">
+            <svg viewBox="0 0 24 24"><path d="M4 4h7v16H4zM14 4h6v16h-6" /></svg><span class="key">S</span>
+          </button>
+          <button data-action="holes" title="Close holes (H)">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M8 12h8M12 8v8" /></svg><span class="key">H</span>
+          </button>
+          <button data-action="delete" id="delete" class="danger" disabled title="Delete the selection (Del)">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>
+          </button>
+          <span class="sep"></span>
+          <button data-tool="orbit" title="View / orbit with the left mouse button (V)">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="4" /><circle cx="12" cy="12" r="2" /></svg><span class="key">V</span>
+          </button>
+        </nav>
+
+        <!-- Options of the active tool -->
+        <div id="tool-card" class="card">
+          <div class="card-head"><span id="card-title"></span><button id="card-close" title="Close">×</button></div>
+
+          <div class="card-body" data-card="select">
+            <div class="seg" id="select-modes">
+              <button data-tool="object" title="Hover to preview, click to select a whole object (O)">Object</button>
+              <button data-tool="click" title="Click triangles (T)">Triangle</button>
+              <button data-tool="brush" title="Paint over visible triangles (B)">Brush</button>
+              <button data-tool="box" title="Drag a rectangle (X)">Box</button>
+              <button data-tool="part" title="Click a connected part (P)">Part</button>
+              <button data-tool="region" title="Click a smooth/flat region (G)">Region</button>
+            </div>
+            <label class="field" data-mode="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
+            <label class="field" data-mode="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
+            <label class="check" data-mode="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
+            <div class="row">
+              <button id="sel-all" title="Ctrl+A">All</button>
+              <button id="sel-none" title="Esc">None</button>
+              <button id="sel-invert" title="Ctrl+I">Invert</button>
+              <button id="sel-grow" title="+">Grow</button>
+              <button id="sel-shrink" title="−">Shrink</button>
+            </div>
+            <p class="hint">Shift adds, Ctrl removes. Drag on empty space to rotate the view.</p>
+          </div>
+
+          <div class="card-body" data-card="block">
+            <p class="hint">Drag a rectangle over the model: it is cut cleanly along the rectangle's edges, all the way through, and the block inside is selected. Use a straight view (View ▾ → Top, Orthographic) for exact cuts, then <b>Split</b> it into its own part.</p>
+          </div>
+
+          <div class="card-body" data-card="move">
+            <div id="joystick">
+              <div class="pads">
+                <div class="pad">
+                  <button data-move="0,1,0" class="n" title="Move +Y">Y+</button>
+                  <button data-move="-1,0,0" class="w" title="Move −X">X−</button>
+                  <button id="move-center" class="c" title="Centre on the plate (Home)">⌂</button>
+                  <button data-move="1,0,0" class="e" title="Move +X">X+</button>
+                  <button data-move="0,-1,0" class="s" title="Move −Y">Y−</button>
+                </div>
+                <div class="zcol">
+                  <button data-move="0,0,1" title="Move up (PgUp)">Z+</button>
+                  <button id="move-drop" title="Drop onto the plate">⤓</button>
+                  <button data-move="0,0,-1" title="Move down (PgDn)">Z−</button>
+                </div>
+              </div>
+              <div class="steps">Step <button data-step="0.1">0.1</button><button data-step="1" class="active">1</button><button data-step="10">10</button> mm</div>
+            </div>
+            <p class="hint">Or drag a part in the view: Shift = up/down, Ctrl = snap. Arrow keys move too.</p>
+          </div>
+
+          <div class="card-body" data-card="rotate">
+            <div class="rotate-row">
+              <button data-rotate="0,0,1,1" title="Turn left (Q)">⟲</button>
+              <button data-rotate="0,0,1,-1" title="Turn right (E)">⟳</button>
+              <span class="angles"><button data-angle="5">5</button><button data-angle="15" class="active">15</button><button data-angle="45">45</button><button data-angle="90">90</button>°</span>
+            </div>
+            <div class="row">
+              <button data-rotate="1,0,0,1" title="Tip 90° around X">Tip X 90°</button>
+              <button data-rotate="0,1,0,1" title="Tip 90° around Y">Tip Y 90°</button>
+            </div>
+            <p class="hint">Drag on the model to spin it on the plate (Shift snaps to 15°).</p>
+          </div>
+
+          <div class="card-body" data-card="layflat">
+            <p class="hint">Click a face: the model turns so that face lies on the plate. To turn only some parts, select them first.</p>
+            <button id="lay-flat" hidden></button>
+          </div>
+
+          <div class="card-body" data-card="cut">
+            <div class="seg cut-planes">
+              <button data-plane="x" title="Cut across X">X</button><button data-plane="y" title="Cut across Y">Y</button><button data-plane="z" class="active" title="Horizontal cut">Z</button><button data-plane="face" title="Parallel to a face you click">Face</button>
+            </div>
+            <label class="field">Position <input id="cut-pos" type="range" step="any" /> <input id="cut-pos-num" type="number" step="0.1" /></label>
+            <label class="field">Pins per area <select id="cut-pins"><option value="auto">Auto</option><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+            <label class="field">Pin Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" /> Length <input id="cut-len" type="number" min="0" step="0.5" value="0" /></label>
+            <label class="field">Hole wider by <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> %</label>
+            <div class="row">
+              <button id="cut-reset" title="Back to a straight plane">Reset</button>
+              <button id="cut-flip" title="Swap which half gets the pins">Flip</button>
+              <button id="cut-go" class="primary" title="Enter">Cut</button>
+            </div>
+            <p class="hint">Drag the orb: the <b>arrow</b> slides the plane, the <b>rings</b> tilt it, the <b>ball</b> moves the handle. Click the model to put the plane there. 0 = automatic pin size.</p>
+          </div>
+
+          <div class="card-body" data-card="holes">
+            <label class="check"><input id="limit-holes" type="checkbox" /> Only holes up to <input id="max-edges" type="number" min="3" value="100" /> edges</label>
+            <button id="fill" class="primary" disabled title="H">Close holes</button>
+            <p class="hint">Holes are outlined in red on the model.</p>
+          </div>
+
+          <div class="card-body" data-card="orbit">
+            <p class="hint">Left-drag rotates the view, right-drag pans, wheel zooms.</p>
+          </div>
+        </div>
+
+        <div id="drop-hint">Open or drop an STL file to start</div>
+        <div id="brush-cursor"></div>
+        <div id="box-rect"></div>
+        <div id="busy">
+          <span id="busy-label">Working…</span>
+          <div id="busy-bar" hidden><div id="busy-fill"></div><span id="busy-pct">0%</span></div>
+        </div>
+        <div id="angle-readout" hidden></div>
+        <div id="toast"></div>
+        <div id="fatal" hidden>
+          <strong>Something went wrong</strong>
+          <div class="msgs"></div>
+          <button onclick="this.parentNode.hidden = true">Close</button>
+        </div>
+
+        <button id="help-open" title="Keyboard shortcuts (?)">?</button>
+        <div id="help" hidden>
+          <div class="help-head">
+            <h3>Shortcuts</h3>
+            <button id="help-close" title="Close">×</button>
+          </div>
+          <div class="help-body">
+            <h4>Tools</h4>
+            <ul class="keys">
+              <li><kbd>O</kbd> = Object select</li>
+              <li><kbd>T</kbd> = Triangle select</li>
+              <li><kbd>B</kbd> = Brush select</li>
+              <li><kbd>X</kbd> = Box select</li>
+              <li><kbd>P</kbd> = Part select</li>
+              <li><kbd>G</kbd> = Region select</li>
+              <li><kbd>K</kbd> = Block cut &amp; select</li>
+              <li><kbd>M</kbd> = Move</li>
+              <li><kbd>R</kbd> = Rotate on plate</li>
+              <li><kbd>L</kbd> = Lay flat</li>
+              <li><kbd>C</kbd> = Cut / plane cut</li>
+              <li><kbd>Enter</kbd> = Do the cut</li>
+              <li><kbd>V</kbd> = View / orbit</li>
+            </ul>
+            <h4>Edit</h4>
+            <ul class="keys">
+              <li><kbd>Del</kbd> = Delete selection</li>
+              <li><kbd>S</kbd> = Split into part</li>
+              <li><kbd>H</kbd> = Close holes</li>
+              <li><kbd>Ctrl+Z</kbd> = Undo</li>
+              <li><kbd>Ctrl+Y</kbd> = Redo</li>
+            </ul>
+            <h4>Selection</h4>
+            <ul class="keys">
+              <li><kbd>Ctrl+A</kbd> = Select all</li>
+              <li><kbd>Ctrl+I</kbd> = Invert</li>
+              <li><kbd>Esc</kbd> = Select none</li>
+              <li><kbd>+</kbd> / <kbd>−</kbd> = Grow / shrink</li>
+              <li><kbd>Shift</kbd>+click = Add</li>
+              <li><kbd>Ctrl</kbd>+click = Remove</li>
+            </ul>
+            <h4>Move &amp; rotate</h4>
+            <ul class="keys">
+              <li><kbd>← → ↑ ↓</kbd> = Move on plate</li>
+              <li><kbd>PgUp</kbd> / <kbd>PgDn</kbd> = Up / down</li>
+              <li><kbd>Shift</kbd>+move = 10× step</li>
+              <li><kbd>Home</kbd> = Centre on plate</li>
+              <li><kbd>Q</kbd> / <kbd>E</kbd> = Turn left / right</li>
+            </ul>
+            <h4>View</h4>
+            <ul class="keys">
+              <li><kbd>F</kbd> = Frame model</li>
+              <li>Left-drag (empty space) = Rotate</li>
+              <li>Right-drag = Rotate</li>
+              <li>Middle-drag = Pan</li>
+              <li>Wheel = Zoom</li>
+              <li>Double-click = Rotation centre</li>
+              <li><kbd>?</kbd> = Show / hide this box</li>
+            </ul>
+          </div>
+        </div>
+      </main>
+
+      <!-- Right sidebar: objects and model info -->
+      <aside id="sidebar">
+        <section class="side-section grow">
+          <div class="side-head">Objects</div>
+          <div id="floating-warning" class="warning" hidden>
+            <p id="floating-text"></p>
+            <div class="row">
+              <button id="floating-select">Select</button>
+              <button id="floating-delete" class="danger">Delete</button>
+              <button id="floating-dismiss" title="Hide this warning">Ignore</button>
+            </div>
+          </div>
+          <ul id="object-list" class="tree"></ul>
+          <button id="show-all" hidden>Show everything</button>
+        </section>
+        <section class="side-section">
+          <div class="side-head">Model</div>
+          <dl id="stats"></dl>
+        </section>
+      </aside>
+    </div>
+
+    <footer id="statusbar">
+      <span id="status-hint"></span>
+      <span class="spacer"></span>
+      <span id="placement"></span>
+      <span class="sep"></span>
+      <span>Selected <b id="sel-count">0</b></span>
+    </footer>
 
     <script>
       // Shows errors that would otherwise fail silently: the app's code not

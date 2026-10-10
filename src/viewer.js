@@ -210,9 +210,16 @@ export class Viewer {
     if (this.cutPlane.visible) {
       const n = new THREE.Vector3(...plane.normal).normalize();
       const sphere = this.geometry.boundingSphere;
-      const centre = sphere.center.clone().addScaledVector(n, plane.offset - n.dot(sphere.center));
+      const centre = plane.center
+        ? new THREE.Vector3(...plane.center)
+        : sphere.center.clone().addScaledVector(n, plane.offset - n.dot(sphere.center));
       this.cutPlane.position.copy(centre);
-      this.cutPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      if (plane.u) {
+        const u = new THREE.Vector3(...plane.u).normalize();
+        this.cutPlane.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, new THREE.Vector3().crossVectors(n, u), n));
+      } else {
+        this.cutPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      }
       this.cutPlane.scale.setScalar(sphere.radius * 2.4);
     }
     this.requestRender();

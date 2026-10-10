@@ -49,6 +49,22 @@ is never sent to the browser.
 Each analysis is one request to the Claude Opus 5.5 model with four images –
 typically a few cents. Everything else in the app works without a key.
 
+## Layout
+
+- **Top bar:** Open, Sample, **Export ▾** (whole model, selection only, all parts
+  as ZIP or separate STLs), Undo/Redo, the file name, then **View ▾** (standard
+  views, camera, rotation mode, hole edges, wireframe, colour by object),
+  **⚙ Settings** (place on plate when opening, close cut faces when splitting,
+  sub-object sensitivity) and **✨ AI**.
+- **Tool rail** (left of the 3D view): Select, Block, Move, Rotate, Lay flat,
+  Cut · Split, Close holes, Delete · View. Clicking a tool opens a small card
+  with just that tool's options (× hides it).
+- **Right sidebar:** the object tree (with the floating-parts warning) and
+  model info.
+- **Status bar:** a hint for the current tool, the position/size of the model
+  or selection, and the selection count.
+- **Navigation gizmo** (top right) and the **Shortcuts** box under the `?`.
+
 ## Keyboard shortcuts
 
 The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
@@ -152,9 +168,11 @@ Number keys 1–9 and 0 also pick tools.
    The whole model turns as one group; to turn only some parts, select them
    first and click a face on them.
    **Cut with connector pins:** the *Cut* tool (`C`) cuts the model with a
-   plane – X, Y, Z, or *Face* (parallel to a face you click). Place it with the
-   slider/number or by clicking the model (a translucent plane shows where),
-   then press *Cut* or Enter. Both halves are closed with flat caps and get
+   plane – X, Y, Z, *Face* (parallel to a face you click), or any angle with
+   the Meshmixer-style **orb**: drag its arrow to slide the plane, its red and
+   green rings to tilt it, and its ball to move the handle across the plane.
+   Clicking the model or the slider also places it; *Reset* goes back to a
+   flat Z cut. Press *Cut* or Enter. Both halves are closed with flat caps and get
    cylindrical connectors to glue them together after printing: pins on the
    lower half, matching holes in the upper half (*Flip side* swaps them). The
    holes are 0.5 % wider than the pins by default (*Hole tolerance*) and a bit
@@ -194,6 +212,7 @@ holes, parts and whether the mesh is watertight.
   server by `vite.config.js`).
 - `src/gizmo.js` – the navigation gizmo.
 - `src/cut.js` – plane cut with caps and connector pins/holes.
+- `src/cutgizmo.js` – the cut plane's orb (slide / tilt / move handles).
 - `src/controls.js` – camera navigation (free/turntable rotation, pan, zoom to cursor).
 - `src/zip.js` – minimal ZIP writer for the multi-part download.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only
