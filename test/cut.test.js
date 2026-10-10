@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditableMesh } from '../src/mesh.js';
-import { cutWithPins } from '../src/cut.js';
+import { cutWithPins, analyzeCut } from '../src/cut.js';
 import { volume, consistentlyClosed } from './helpers.js';
 
 const box = (x0, y0, z0, x1, y1, z1) => {
@@ -41,7 +41,7 @@ test('cut a block in half: two closed halves, pin on the lower, hole in the uppe
 test('two separate pieces crossing the plane each get their own pin', () => {
   const m = mesh(box(0, 0, 0, 15, 15, 30), box(40, 0, 0, 55, 15, 30));
   const r = cutWithPins(m, { normal: [0, 0, 1], offset: 10 }, { pins: 'auto' });
-  assert.equal(r.areas, 2);
+  assert.equal(r.areas.length, 2);
   assert.equal(r.pins.length, 2);
   const ps = parts(m);
   assert.equal(ps.length, 4);
@@ -99,4 +99,51 @@ test('a tilted plane cut gives two closed halves with a pin', () => {
   assert.equal(ps.length, 2);
   for (const p of ps) assert.ok(consistentlyClosed(p));
   assert.ok(Math.abs(volume(m) - 36000) < 15, `volume ${volume(m)}`); // pin ≈ hole
+});
+
+test('thin walls still get connectors', () => {
+  for (const t of [4, 3]) {
+    const m = mesh(box(0, 0, 0, 100, t, 40));
+    const r = cutWithPins(m, { normal: [0, 0, 1], offset: 20 }, {});
+    assert.ok(r.pins.length >= 2, `${t} mm wall: ${r.pins.length} connectors – ${r.areas[0].notes.join(' ')}`);
+    assert.ok(r.pins[0].diameter <= t - 1.2, 'leaves walls around the hole');
+    for (const p of parts(m).filter((p) => p.triangleCount > 40)) assert.ok(consistentlyClosed(p));
+  }
+});
+
+test('inside-out models are cut and get connectors too', () => {
+  const soup = box(0, 0, 0, 30, 30, 40);
+  for (let i = 0; i < soup.length; i += 9) for (let k = 0; k < 3; k++) [soup[i + 3 + k], soup[i + 6 + k]] = [soup[i + 6 + k], soup[i + 3 + k]];
+  const m = mesh(soup);
+  const r = cutWithPins(m, { normal: [0, 0, 1], offset: 20 }, {});
+  assert.equal(r.pins.length, 1);
+  for (const p of parts(m)) assert.ok(consistentlyClosed(p), 'consistent with the rest of the model');
+  assert.ok(volume(m) < 0, 'still inside-out, as it came');
+});
+
+test('dowels: holes on both halves plus a separate dowel part', () => {
+  const m = mesh(box(0, 0, 0, 30, 30, 40));
+  const r = cutWithPins(m, { normal: [0, 0, 1], offset: 20 }, { type: 'dowel', pins: 2, diameter: 5, length: 6 });
+  assert.equal(r.pins.length, 2);
+  assert.ok(r.pins.every((p) => p.kind === 'dowel' && Math.abs(p.length - 12) < 1e-9));
+  const ps = parts(m);
+  assert.equal(ps.length, 4); // two halves + two dowels
+  for (const p of ps) assert.ok(consistentlyClosed(p));
+  // Both halves lost the hole volume; the dowels are separate.
+  const [d1, d2] = r.dowelFaces;
+  assert.equal(d2 - d1, 2 * 32 * 8);
+  const halves = ps.filter((p) => p.bounds().max[0] <= 30 + 1e-6);
+  assert.equal(halves.length, 2);
+  for (const h of halves) assert.ok(volume(h) < 18000);
+});
+
+test('analyzeCut reports the plan without changing the mesh', () => {
+  const m = mesh(box(0, 0, 0, 100, 4, 40), box(0, 20, 0, 1, 21, 40));
+  const tris = m.triangleCount;
+  const a = analyzeCut(m, { normal: [0, 0, 1], offset: 20 }, {});
+  assert.equal(m.triangleCount, tris);
+  assert.equal(a.areas.length, 2);
+  assert.ok(a.areas[0].connectors.length >= 2);
+  assert.equal(a.areas[1].connectors.length, 0);
+  assert.match(a.areas[1].notes.join(' '), /Too thin/);
 });

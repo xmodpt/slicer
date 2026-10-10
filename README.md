@@ -167,19 +167,25 @@ Number keys 1–9 and 0 also pick tools.
    turns so that face (with the flat area around it) rests on the plate.
    The whole model turns as one group; to turn only some parts, select them
    first and click a face on them.
-   **Cut with connector pins:** the *Cut* tool (`C`) cuts the model with a
-   plane – X, Y, Z, *Face* (parallel to a face you click), or any angle with
-   the Meshmixer-style **orb**: drag its arrow to slide the plane, its red and
-   green rings to tilt it, and its ball to move the handle across the plane.
-   Clicking the model or the slider also places it; *Reset* goes back to a
-   flat Z cut. Press *Cut* or Enter. Both halves are closed with flat caps and get
-   cylindrical connectors to glue them together after printing: pins on the
-   lower half, matching holes in the upper half (*Flip side* swaps them). The
-   holes are 0.5 % wider than the pins by default (*Hole tolerance*) and a bit
-   deeper, so the parts slide together without force. Pin size, length and
-   count are automatic (pins go where the cut face has the most material) or
-   set by you; each separate cut area gets its own pins, and a pin is
-   shortened or left out if the hole would break through the other side.
+   **Cut with connectors:** the *Cut* tool (`C`) guides you in three steps:
+   1. *Place the plane* – X, Y, Z, *Face* (parallel to a face you click), or
+      any angle with the Meshmixer-style **orb**: drag its arrow to slide the
+      plane, its red and green rings to tilt it, its ball to move the handle.
+      Clicking the model or the slider also places it; *Reset* goes back to a
+      flat Z cut.
+   2. *Check the connectors* – every separate cut area is analysed as the
+      plane moves: its size, which connectors fit (and why, or why not), with
+      a preview on the plane. *Type*: **Auto** picks per area, **Pin & hole**
+      (a pin on the lower half, a hole in the upper one – *Flip* swaps them),
+      **Dowels** (holes in both halves plus separate dowel parts, printed lying
+      down – stronger), or **None** (glue only). Size and count are automatic
+      or set by you; holes are 0.5 % wider than the pins (*Hole wider by*) and a
+      bit deeper. Thin walls get small connectors; areas too thin get none,
+      and holes never break through the other side.
+   3. *Cut* (or Enter) – both halves are closed and get their connectors.
+      *Arrange for printing* then lays each half on its best face (pins up,
+      or cut face down) and puts the halves and dowels side by side; download
+      them with *Download parts*. Tips for printing and gluing are shown.
 6. **Split into parts** (optional): select a region (e.g. with Block) and press
    *Split selection into new part* (`S`). The selection is detached from the
    rest and the cut faces on both sides are closed, so each part is a solid of

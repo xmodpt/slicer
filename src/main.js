@@ -6,7 +6,7 @@ import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
-import { cutWithPins } from './cut.js';
+import { cutWithPins, analyzeCut } from './cut.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1525,36 +1525,199 @@ function syncCutControls(lo, hi) {
   $('cut-pos-num').value = cut.offset.toFixed(2);
   for (const b of document.querySelectorAll('[data-plane]')) b.classList.toggle('active', b.dataset.plane === cut.mode);
   showCutPlane();
+  scheduleCutAnalysis();
 }
 
 function showCutPlane() {
   const on = state.tool === 'cut' && !!state.mesh;
+  if (!on) viewer.setConnectorPreview(null);
   viewer.setCutPlane(on ? cut : null);
   cutGizmo.update(on ? cut : null, on ? viewer.geometry.boundingSphere.radius : 0);
 }
 
-function doCut() {
-  if (!state.mesh) return;
-  const opts = {
+function cutOptions() {
+  return {
+    type: $('cut-type').value,
     pins: $('cut-pins').value,
     diameter: +$('cut-dia').value || 0,
     length: +$('cut-len').value || 0,
     tolerance: Math.max(0, +$('cut-tol').value || 0),
   };
+}
+
+// Step 1/2/3 of the cut guide.
+function setCutStep(step) {
+  for (const li of document.querySelectorAll('#cut-guide li')) {
+    const n = +li.dataset.step;
+    li.classList.toggle('step-current', n === step);
+    li.classList.toggle('step-done', n < step);
+  }
+}
+
+const fmtMM = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
+
+function connectorText(conns) {
+  if (!conns.length) return 'no connectors';
+  const pins = conns.filter((c) => c.kind === 'pin'), dowels = conns.filter((c) => c.kind === 'dowel');
+  const part = (list, name) =>
+    list.length ? `${list.length} ${name}${list.length > 1 ? 's' : ''} Ø${fmtMM(2 * list[0].r)} × ${fmtMM(list[0].kind === 'dowel' ? 2 * list[0].h : list[0].h)}` : '';
+  return [part(pins, 'pin'), part(dowels, 'dowel')].filter(Boolean).join(' + ');
+}
+
+// Analyses the current plane (debounced) and shows, per cut area, which
+// connectors fit and why – plus a preview on the plane.
+let analysisTimer = null;
+function scheduleCutAnalysis() {
+  clearTimeout(analysisTimer);
+  if (state.tool !== 'cut' || !state.mesh) return;
+  $('cut-done').hidden = true;
+  setCutStep(1);
+  if (state.mesh.triangleCount > 400000) {
+    // Big models: on request only.
+    viewer.setConnectorPreview(null);
+    $('cut-analysis').innerHTML = '<button id="cut-analyse">Check connectors for this plane</button>';
+    $('cut-analyse').addEventListener('click', () => runCutAnalysis());
+    return;
+  }
+  analysisTimer = setTimeout(runCutAnalysis, 350);
+}
+
+function runCutAnalysis() {
+  const box = $('cut-analysis');
+  let result;
+  try {
+    result = analyzeCut(state.mesh, cut, cutOptions());
+  } catch (err) {
+    box.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'overall';
+    p.textContent = err.message;
+    box.append(p);
+    viewer.setConnectorPreview(null);
+    state.cutPlan = null;
+    return;
+  }
+  state.cutPlan = result;
+  setCutStep(2);
+  box.innerHTML = '';
+  const areas = result.areas;
+  const shown = areas.slice(0, 8);
+  shown.forEach((a, i) => {
+    const div = document.createElement('div');
+    div.className = 'area ' + (a.connectors.length ? 'ok' : 'none');
+    const label = areas.length > 1 ? `Area ${i + 1}` : 'Cut area';
+    div.innerHTML = '<div class="what"></div><div class="why"></div>';
+    div.querySelector('.what').textContent = `${label} · ${fmtMM(a.size[0])} × ${fmtMM(a.size[1])} mm → ${a.connectors.length ? connectorText(a.connectors) : 'glue only'}`;
+    div.querySelector('.why').textContent = [...new Set(a.notes)].join(' ') || (a.connectors.length ? 'Fits with walls around every hole.' : '');
+    box.append(div);
+  });
+  if (areas.length > shown.length) {
+    const more = areas.slice(shown.length);
+    const p = document.createElement('p');
+    p.className = 'overall';
+    p.textContent = `+ ${more.length} smaller areas: ${more.reduce((n, a) => n + a.connectors.length, 0)} connectors.`;
+    box.append(p);
+  }
+  for (const note of result.notes) {
+    const p = document.createElement('p');
+    p.className = 'overall';
+    p.textContent = note;
+    box.append(p);
+  }
+  viewer.setConnectorPreview(
+    areas.flatMap((a) => a.connectors),
+    cut.normal,
+  );
+}
+
+function doCut() {
+  if (!state.mesh) return;
+  clearTimeout(analysisTimer);
+  const before = state.mesh.triangleCount;
+  let result = null;
   edit((mesh) => {
     try {
-      const r = cutWithPins(mesh, cut, opts);
-      const pins = r.pins.length
-        ? `${r.pins.length} pin(s) Ø${r.pins[0].diameter.toFixed(2)} × ${r.pins[0].length.toFixed(1)}, holes Ø${r.pins[0].holeDiameter.toFixed(3)}`
-        : 'no pins';
-      const skipped = r.skipped.length ? ` – ${[...new Set(r.skipped)].join(' ')}` : '';
-      return `Cut into closed halves with ${pins}${skipped}`;
+      result = cutWithPins(mesh, cut, cutOptions());
+      return `Cut into closed halves with ${connectorText(result.areas.flatMap((a) => a.connectors))}`;
     } catch (err) {
       toast(err.message);
     }
   });
+  clearTimeout(analysisTimer); // the plane now sits on the new caps – nothing to analyse until it moves
+  $('cut-analysis').innerHTML = '';
+  if (!result || state.mesh.triangleCount === before) return;
+  state.lastCut = { normal: [...cut.normal], offset: cut.offset, dowelFaces: result.dowelFaces, hasPins: result.pins.some((p) => p.kind === 'pin') };
+  viewer.setConnectorPreview(null);
+  setCutStep(4);
+  const conns = result.areas.flatMap((a) => a.connectors);
+  $('cut-done-text').textContent = `Cut done – ${connectorText(conns)}. Next: arrange the halves for printing, then download the parts.`;
+  const tips = [
+    'Arrange for printing lays each half on its best face and puts them side by side.',
+    ...result.notes,
+    `Holes are ${(+$('cut-tol').value || 0).toFixed(1)} % wider than the pins: if the fit is too tight after printing, raise "Hole wider by" and cut again (Ctrl+Z first).`,
+    'Glue with CA (super glue) or epoxy; dry-fit first.',
+  ];
+  const ul = $('cut-tips');
+  ul.innerHTML = '';
+  for (const t of tips) {
+    const li = document.createElement('li');
+    li.textContent = t;
+    ul.append(li);
+  }
+  $('cut-done').hidden = false;
   showCutPlane();
 }
+
+// After a cut: lay the halves on their best faces and place everything side
+// by side on the plate (one undo step).
+function arrangeForPrinting() {
+  const lc = state.lastCut;
+  const mesh = state.mesh;
+  if (!lc || !mesh) return;
+  const n = lc.normal;
+  const parts = mesh.parts();
+  const groups = { lower: [], upper: [], dowel: [] };
+  for (const part of parts) {
+    const f0 = part.faces[0];
+    if (lc.dowelFaces && f0 >= lc.dowelFaces[0] && f0 < lc.dowelFaces[1]) {
+      groups.dowel.push(part);
+      continue;
+    }
+    const b = mesh.boundsOfFaces(part.faces);
+    const c = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
+    groups[n[0] * c[0] + n[1] * c[1] + n[2] * c[2] > lc.offset ? 'upper' : 'lower'].push(part);
+  }
+  const maskOf = (list) => {
+    const m = new Uint8Array(mesh.triangleCount);
+    for (const p of list) for (const t of p.faces) m[t] = 1;
+    return m;
+  };
+  transformBurst(() => {
+    // Upper half: cut face (facing -n) down. Lower half: with pins, cut face up
+    // so the pins point up; without, cut face down (flat on the plate).
+    if (groups.upper.length) mesh.layFlat(n.map((x) => -x), maskOf(groups.upper));
+    if (groups.lower.length) mesh.layFlat(lc.hasPins ? n.map((x) => -x) : n, maskOf(groups.lower));
+    let x = 0;
+    for (const key of ['lower', 'upper', 'dowel']) {
+      if (!groups[key].length) continue;
+      const mask = maskOf(groups[key]);
+      const b = mesh.bounds(mask);
+      mesh.translate(x - b.min[0], -(b.min[1] + b.max[1]) / 2, -b.min[2], mesh.verticesOf(mask));
+      x += b.max[0] - b.min[0] + 5;
+    }
+    // Centre the whole layout on the plate.
+    const all = mesh.bounds();
+    mesh.translate(-(all.min[0] + all.max[0]) / 2, 0, 0);
+  });
+  state.moving = false;
+  setTool('move'); // hides the cut plane; parts can be nudged now
+  viewer.frame();
+  toast('Arranged for printing – nudge parts with Move if needed, then Export ▾ → Download all parts');
+}
+
+$('cut-arrange').addEventListener('click', arrangeForPrinting);
+$('cut-export').addEventListener('click', () => $('export-zip').click());
+for (const id of ['cut-type', 'cut-pins', 'cut-dia', 'cut-len', 'cut-tol']) $(id).addEventListener('change', scheduleCutAnalysis);
 
 for (const b of document.querySelectorAll('[data-plane]')) {
   b.addEventListener('click', () => {

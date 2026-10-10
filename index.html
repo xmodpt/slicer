@@ -196,19 +196,42 @@
           </div>
 
           <div class="card-body" data-card="cut">
+            <ol class="guide" id="cut-guide">
+              <li data-step="1"><b>Place the plane</b> – drag the orb (arrow slides, rings tilt), pick an axis, or click the model.</li>
+              <li data-step="2"><b>Check the connectors</b> – the list below and the preview on the plane show what each cut area gets.</li>
+              <li data-step="3"><b>Cut</b> – then arrange the halves for printing and export.</li>
+            </ol>
             <div class="seg cut-planes">
               <button data-plane="x" title="Cut across X">X</button><button data-plane="y" title="Cut across Y">Y</button><button data-plane="z" class="active" title="Horizontal cut">Z</button><button data-plane="face" title="Parallel to a face you click">Face</button>
             </div>
             <label class="field">Position <input id="cut-pos" type="range" step="any" /> <input id="cut-pos-num" type="number" step="0.1" /></label>
-            <label class="field">Pins per area <select id="cut-pins"><option value="auto">Auto</option><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
-            <label class="field">Pin Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" /> Length <input id="cut-len" type="number" min="0" step="0.5" value="0" /></label>
+
+            <div class="sub-head">Connectors</div>
+            <label class="field">Type <select id="cut-type">
+              <option value="auto">Auto (recommended)</option>
+              <option value="pin">Pin &amp; hole</option>
+              <option value="dowel">Dowels (separate pins)</option>
+              <option value="none">None – glue only</option>
+            </select></label>
+            <label class="field">Per cut area <select id="cut-pins"><option value="auto">Auto</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+            <label class="field">Ø <input id="cut-dia" type="number" min="0" step="0.5" value="0" title="0 = automatic" /> Length <input id="cut-len" type="number" min="0" step="0.5" value="0" title="0 = automatic" /></label>
             <label class="field">Hole wider by <input id="cut-tol" type="number" min="0" step="0.1" value="0.5" /> %</label>
+            <div id="cut-analysis" class="analysis"></div>
+
             <div class="row">
-              <button id="cut-reset" title="Back to a straight plane">Reset</button>
+              <button id="cut-reset" title="Back to a flat Z cut">Reset</button>
               <button id="cut-flip" title="Swap which half gets the pins">Flip</button>
               <button id="cut-go" class="primary" title="Enter">Cut</button>
             </div>
-            <p class="hint">Drag the orb: the <b>arrow</b> slides the plane, the <b>rings</b> tilt it, the <b>ball</b> moves the handle. Click the model to put the plane there. 0 = automatic pin size.</p>
+
+            <div id="cut-done" class="done" hidden>
+              <p id="cut-done-text"></p>
+              <div class="row">
+                <button id="cut-arrange" class="primary" title="Lay each half on its best face and place them side by side">Arrange for printing</button>
+                <button id="cut-export" title="Download every part as STL in a ZIP">Download parts</button>
+              </div>
+              <ul id="cut-tips" class="tips"></ul>
+            </div>
           </div>
 
           <div class="card-body" data-card="holes">
