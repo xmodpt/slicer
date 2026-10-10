@@ -15,6 +15,9 @@ npm start         # build + serve the optimized version (port 4173)
 
 ### Running on a Raspberry Pi / another machine
 
+After every `git pull`, run `npm install` before `npm start` – updates can add
+packages.
+
 The server listens on all network interfaces, so on the Pi it prints a
 `Network:` address next to `Local:`. Open that one (e.g.
 `http://192.168.1.50:5173`, or `http://raspberrypi.local:5173`) from the
