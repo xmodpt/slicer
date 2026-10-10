@@ -212,6 +212,11 @@ function analyzeObjects() {
     // that avoids the orange used for the selection.
     new THREE.Color(i === 0 ? 0xb9c0cc : OBJECT_PALETTE[(i - 1) % OBJECT_PALETTE.length]),
   );
+  // Object numbers change whenever the model is re-analysed, so earlier AI
+  // results no longer apply.
+  if (state.ai) $('ai-summary').textContent = 'The model changed – ask the AI again to update the names.';
+  state.ai = null;
+  $('ai-select-remove').hidden = true;
   applyObjectColors();
   renderObjectList();
 }
@@ -219,6 +224,24 @@ function analyzeObjects() {
 function applyObjectColors() {
   viewer.setObjects(state.seg.objectOf, $('obj-colors').checked ? state.objectColors : null);
   viewer.setSelection(state.selection);
+}
+
+// Rows of the objects list: one per detected object, or – after an AI
+// analysis – one per AI item (which can group several objects), followed by
+// any objects the AI did not mention.
+function objectRows() {
+  const { objects } = state.seg;
+  const rows = [];
+  const covered = new Set();
+  for (const item of state.ai?.items || []) {
+    rows.push({ ids: item.object_ids, name: item.name, suggestion: item.suggestion, title: `${item.description}\n\n${item.reason}` });
+    item.object_ids.forEach((id) => covered.add(id));
+  }
+  for (const o of objects.slice(0, MAX_LISTED)) {
+    if (covered.has(o.id)) continue;
+    rows.push({ ids: [o.id], name: o.id === 0 ? 'Main body' : `Object ${o.id}` });
+  }
+  return rows;
 }
 
 function renderObjectList() {
@@ -233,23 +256,29 @@ function renderObjectList() {
   };
   if (objects.length === 1) {
     note('Only one object found. Lower the crease angle to split the model further.');
-    return;
   }
-  for (const o of objects.slice(0, MAX_LISTED)) {
+  state.rows = objectRows();
+  state.rowOfObject = new Map();
+  state.rows.forEach((row, r) => row.ids.forEach((id) => state.rowOfObject.set(id, r)));
+  if (objects.length === 1 && !state.ai) return;
+
+  for (const row of state.rows) {
+    const triangles = row.ids.reduce((n, id) => n + objects[id].triangles, 0);
+    const pct = row.ids.reduce((n, id) => n + objects[id].share, 0) * 100;
     const li = document.createElement('li');
-    li.title = 'Click to select (Shift adds, Ctrl removes)';
-    const pct = o.share * 100;
+    li.title = (row.title ? row.title + '\n\n' : '') + 'Click to select (Shift adds, Ctrl removes)';
     li.innerHTML = `<span class="swatch"></span><span class="name"></span>
-      <span class="meta">${o.triangles.toLocaleString()} tris · ${pct < 0.1 ? '<0.1' : pct.toFixed(1)}%</span>
-      <button title="Delete this object">✕</button>`;
-    li.querySelector('.swatch').style.background = '#' + state.objectColors[o.id].getHexString();
-    li.querySelector('.name').textContent = o.id === 0 ? 'Main body' : `Object ${o.id}`;
-    li.addEventListener('mouseenter', () => setHoverObject(o.id));
-    li.addEventListener('mouseleave', () => setHoverObject(-1));
-    li.addEventListener('click', (e) => selectObject(o.id, modeFor(e, 'replace')));
+      ${row.suggestion && row.suggestion !== 'keep' ? `<span class="badge ${row.suggestion}">${row.suggestion}</span>` : ''}
+      <span class="meta">${triangles.toLocaleString()} tris · ${pct < 0.1 ? '<0.1' : pct.toFixed(1)}%</span>
+      <button title="Delete">✕</button>`;
+    li.querySelector('.swatch').style.background = '#' + state.objectColors[row.ids[0]].getHexString();
+    li.querySelector('.name').textContent = row.name + (row.ids.length > 1 ? ` (${row.ids.length} parts)` : '');
+    li.addEventListener('mouseenter', () => setHoverObjects(row.ids));
+    li.addEventListener('mouseleave', () => setHoverObjects([]));
+    li.addEventListener('click', (e) => selectObjects(row.ids, modeFor(e, 'replace')));
     li.querySelector('button').addEventListener('click', (e) => {
       e.stopPropagation();
-      selectObject(o.id, 'replace');
+      selectObjects(row.ids, 'replace');
       deleteSelected();
     });
     list.append(li);
@@ -257,20 +286,155 @@ function renderObjectList() {
   if (objects.length > MAX_LISTED) note(`+ ${objects.length - MAX_LISTED} smaller objects (use the Object tool to pick them)`);
 }
 
-function setHoverObject(id) {
-  if (!state.seg || viewer.hoverObject === id) return;
-  const old = viewer.hoverObject;
-  viewer.hoverObject = id;
-  for (const o of [old, id]) if (o >= 0) viewer.updateFaces(state.seg.facesOf(o), state.selection);
+// Objects that belong to the same list row as `id` (AI groups several).
+function rowObjects(id) {
+  const r = state.rowOfObject?.get(id);
+  return r === undefined ? [id] : state.rows[r].ids;
 }
 
-function selectObject(id, mode) {
-  applyFaces(state.seg.facesOf(id), mode);
+function setHoverObjects(ids) {
+  if (!state.seg) return;
+  const old = viewer.hoverObjects;
+  const next = new Set(ids);
+  if (old.size === next.size && [...next].every((id) => old.has(id))) return;
+  viewer.hoverObjects = next;
+  for (const id of new Set([...old, ...next])) viewer.updateFaces(state.seg.facesOf(id), state.selection);
+}
+
+function selectObjects(ids, mode) {
+  const faces = [];
+  for (const id of ids) for (const t of state.seg.facesOf(id)) faces.push(t);
+  applyFaces(faces, mode);
 }
 
 $('obj-angle').addEventListener('input', (e) => ($('obj-angle-val').textContent = e.target.value + '°'));
 $('obj-angle').addEventListener('change', () => state.mesh && busy(analyzeObjects));
 $('obj-colors').addEventListener('change', () => state.mesh && applyObjectColors());
+
+// ---------------------------------------------------------------------------
+// AI analysis: render labelled views, send them to the server (server/ai.js)
+
+const AI_VIEWS = [
+  ['front-left, from above', [0.55, -0.75, 0.45]],
+  ['back-right, from above', [-0.55, 0.75, 0.45]],
+  ['top-down', [0, 0, 1]],
+  ['front', [0, -1, 0.12]],
+];
+
+function describeObjects(ids) {
+  const { mesh } = state;
+  const p = mesh.positions, ind = mesh.indices;
+  return ids.map((id) => {
+    const o = state.seg.objects[id];
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (const t of state.seg.facesOf(id)) {
+      for (let k = 0; k < 3; k++) {
+        const v = ind[t * 3 + k] * 3;
+        for (let a = 0; a < 3; a++) {
+          if (p[v + a] < min[a]) min[a] = p[v + a];
+          if (p[v + a] > max[a]) max[a] = p[v + a];
+        }
+      }
+    }
+    return {
+      id,
+      triangles: o.triangles,
+      share: o.share,
+      size: max.map((v, a) => v - min[a]),
+      center: max.map((v, a) => (v + min[a]) / 2),
+    };
+  });
+}
+
+// One JPEG view with every listed object labelled "#id" where it is visible.
+function labelledView(dir, ids) {
+  const { pixels, faces, size } = viewer.captureView(dir, 768);
+  const wanted = new Set(ids);
+  const count = new Map(), sumX = new Map(), sumY = new Map();
+  for (let i = 0; i < faces.length; i++) {
+    if (faces[i] < 0) continue;
+    const id = state.seg.objectOf[faces[i]];
+    if (!wanted.has(id)) continue;
+    count.set(id, (count.get(id) || 0) + 1);
+    sumX.set(id, (sumX.get(id) || 0) + (i % size));
+    sumY.set(id, (sumY.get(id) || 0) + ((i / size) | 0));
+  }
+  // Put each label on the object's visible pixel nearest its visible centre.
+  const anchors = new Map();
+  for (const [id, n] of count) {
+    if (n < 40) continue;
+    const cx = sumX.get(id) / n, cy = sumY.get(id) / n;
+    let best = Infinity, bx = 0, by = 0;
+    for (let i = 0; i < faces.length; i += 3) {
+      if (faces[i] < 0 || state.seg.objectOf[faces[i]] !== id) continue;
+      const x = i % size, y = (i / size) | 0;
+      const d = (x - cx) ** 2 + (y - cy) ** 2;
+      if (d < best) { best = d; bx = x; by = y; }
+    }
+    anchors.set(id, [bx, by]);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(new ImageData(pixels, size, size), 0, 0);
+  ctx.font = 'bold 18px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [id, [x, y]] of anchors) {
+    const text = '#' + id;
+    const w = ctx.measureText(text).width + 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(x - w / 2, y - 12, w, 24);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, x, y);
+  }
+  return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+}
+
+async function askAI() {
+  if (!state.mesh) return;
+  const ids = state.seg.objects.slice(0, MAX_LISTED).map((o) => o.id);
+  const button = $('ai-run');
+  button.disabled = true;
+  button.textContent = 'Asking AI…';
+  $('ai-summary').textContent = 'Rendering views and asking the AI – this can take a minute.';
+  try {
+    // Render with object colours on and no selection, whatever the UI shows.
+    setHoverObjects([]);
+    viewer.setObjects(state.seg.objectOf, state.objectColors);
+    viewer.setSelection(new Uint8Array(state.mesh.triangleCount));
+    const images = AI_VIEWS.map(([view, dir]) => ({ view, data: labelledView(dir, ids) }));
+    applyObjectColors();
+
+    const seg = state.seg;
+    const res = await fetch('./api/ai/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images, objects: describeObjects(ids), fileName: state.fileName, goal: $('ai-goal').value }),
+    });
+    const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    if (state.seg !== seg) return; // model changed while waiting
+    state.ai = data;
+    $('ai-summary').textContent = data.model_description + (data.tips.length ? ' ' + data.tips.join(' ') : '');
+    $('ai-select-remove').hidden = !data.items.some((i) => i.suggestion === 'remove');
+    renderObjectList();
+  } catch (err) {
+    applyObjectColors();
+    $('ai-summary').textContent = 'AI analysis failed: ' + (err.message || err);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Ask AI to identify objects';
+  }
+}
+
+$('ai-run').addEventListener('click', askAI);
+$('ai-goal').addEventListener('keydown', (e) => e.key === 'Enter' && askAI());
+$('ai-select-remove').addEventListener('click', () => {
+  const ids = (state.ai?.items || []).filter((i) => i.suggestion === 'remove').flatMap((i) => i.object_ids);
+  selectObjects(ids, 'replace');
+});
 
 // ---------------------------------------------------------------------------
 // Selection
@@ -320,7 +484,7 @@ let orbitOverride = false; // Alt held
 
 function setTool(tool) {
   state.tool = tool;
-  setHoverObject(-1);
+  setHoverObjects([]);
   for (const b of document.querySelectorAll('#tools button')) b.classList.toggle('active', b.dataset.tool === tool);
   for (const o of document.querySelectorAll('.option[data-for]')) o.classList.toggle('shown', o.dataset.for === tool);
   updateControls();
@@ -380,7 +544,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (state.tool === 'brush' && !orbitOverride) moveBrushCursor(p);
   if (state.tool === 'object' && state.seg && e.buttons === 0) {
     const face = viewer.faceAt(p.x, p.y);
-    setHoverObject(face < 0 ? -1 : state.seg.objectOf[face]);
+    setHoverObjects(face < 0 ? [] : rowObjects(state.seg.objectOf[face]));
   }
   if (!drag) return;
   if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 3) drag.moved = true;
@@ -398,7 +562,7 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerleave', () => {
   brushCursor.style.display = 'none';
-  setHoverObject(-1);
+  setHoverObjects([]);
 });
 
 canvas.addEventListener('pointerup', (e) => {
@@ -428,7 +592,7 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
   if (tool === 'object') {
-    selectObject(state.seg.objectOf[face], mode);
+    selectObjects(rowObjects(state.seg.objectOf[face]), mode);
     return;
   }
   if (tool === 'click') {

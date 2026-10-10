@@ -85,6 +85,7 @@ export class Viewer {
     this.showWireframe = false;
     this.showBoundaries = true;
 
+    this.hoverObjects = new Set();
     this._needsRender = true;
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -170,7 +171,7 @@ export class Viewer {
   _faceColor(t, mask) {
     if (mask[t]) return SELECTED_COLOR;
     const objectOf = this.objectOf;
-    if (objectOf && objectOf[t] === this.hoverObject) return HOVER_COLOR;
+    if (objectOf && this.hoverObjects.has(objectOf[t])) return HOVER_COLOR;
     if (objectOf && this.objectColors) return this.objectColors[objectOf[t]] || BASE_COLOR;
     return BASE_COLOR;
   }
@@ -180,7 +181,7 @@ export class Viewer {
   setObjects(objectOf, colors) {
     this.objectOf = objectOf;
     this.objectColors = colors;
-    this.hoverObject = -1;
+    this.hoverObjects = new Set();
   }
 
   setSelection(mask) {
@@ -239,6 +240,65 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(sphere.center);
     this.controls.update();
+  }
+
+  // Renders the model from direction `dir` into a square image, off screen.
+  // Returns RGBA pixels plus the visible face id per pixel (-1 = background),
+  // both with the top row first.
+  captureView(dir, size = 768) {
+    const sphere = this.geometry.boundingSphere;
+    const cam = new THREE.PerspectiveCamera(35, 1, sphere.radius / 100, sphere.radius * 100);
+    const d = new THREE.Vector3(...dir).normalize();
+    cam.up.set(0, 0, 1);
+    if (Math.abs(d.z) > 0.99) cam.up.set(0, 1, 0);
+    const dist = sphere.radius / Math.sin(THREE.MathUtils.degToRad(cam.fov / 2));
+    cam.position.copy(sphere.center).addScaledVector(d, dist * 1.05);
+    cam.lookAt(sphere.center);
+    cam.updateMatrixWorld();
+    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    key.position.set(1, 1.5, 2);
+    cam.add(key);
+    this.scene.add(cam);
+
+    const rt = new THREE.WebGLRenderTarget(size, size, { samples: 4 });
+    rt.texture.colorSpace = THREE.SRGBColorSpace;
+    const boundaries = this.boundaryLines?.visible;
+    if (this.boundaryLines) this.boundaryLines.visible = false;
+    const raw = new Uint8Array(size * size * 4);
+    this.renderer.setRenderTarget(rt);
+    this.renderer.render(this.scene, cam);
+    this.renderer.readRenderTargetPixels(rt, 0, 0, size, size, raw);
+
+    const idRt = new THREE.WebGLRenderTarget(size, size);
+    const idRaw = new Uint8Array(size * size * 4);
+    const prevColor = this.renderer.getClearColor(new THREE.Color());
+    const prevAlpha = this.renderer.getClearAlpha();
+    this.renderer.setRenderTarget(idRt);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear();
+    this.renderer.render(this.pickScene, cam);
+    this.renderer.readRenderTargetPixels(idRt, 0, 0, size, size, idRaw);
+    this.renderer.setRenderTarget(null);
+    this.renderer.setClearColor(prevColor, prevAlpha);
+
+    if (this.boundaryLines) this.boundaryLines.visible = boundaries;
+    this.scene.remove(cam);
+    rt.dispose();
+    idRt.dispose();
+    this.requestRender();
+
+    // Flip rows so the first row is the top of the image.
+    const pixels = new Uint8ClampedArray(size * size * 4);
+    const faces = new Int32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      const src = (size - 1 - y) * size;
+      pixels.set(raw.subarray(src * 4, (src + size) * 4), y * size * 4);
+      for (let x = 0; x < size; x++) {
+        const i = (src + x) * 4;
+        faces[y * size + x] = idRaw[i] + idRaw[i + 1] * 256 + idRaw[i + 2] * 65536 - 1;
+      }
+    }
+    return { pixels, faces, size };
   }
 
   // ---------------------------------------------------------------------------

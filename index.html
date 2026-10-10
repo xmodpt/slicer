@@ -42,6 +42,12 @@
         <h2>Objects found</h2>
         <label class="option" title="Lower = split the model into more, smaller objects">Split at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
         <label class="option check"><input id="obj-colors" type="checkbox" checked /> Colour by object</label>
+        <div class="ai">
+          <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
+          <button id="ai-run" class="wide">Ask AI to identify objects</button>
+          <p id="ai-summary" class="muted"></p>
+          <button id="ai-select-remove" class="wide" hidden>Select everything the AI suggests removing</button>
+        </div>
         <ul id="object-list"></ul>
       </section>
 

@@ -26,6 +26,26 @@ other computer – `localhost` only works on the Pi itself.
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
 
+### AI object recognition (optional)
+
+The *Ask AI to identify objects* button sends a few rendered views of the model
+to Claude, which names the detected objects (e.g. "Candle"), groups pieces that
+belong together and suggests what to keep or remove – optionally based on a
+goal you type, like "remove the candles". It runs on the server, so the API key
+is never sent to the browser.
+
+1. Get an API key at <https://console.anthropic.com/>.
+2. On the machine running the app (e.g. the Pi), create a file `.env` in this
+   folder containing:
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+   (or `export ANTHROPIC_API_KEY=...` before `npm start`). `.env` is ignored by git.
+3. Restart `npm start`.
+
+Each analysis is one request to the Claude Opus 5.5 model with four images –
+typically a few cents. Everything else in the app works without a key.
+
 ## Workflow
 
 1. **Open** an `.stl` (binary or ASCII) with *Open STL…* or drag it onto the window.
@@ -53,6 +73,9 @@ other computer – `localhost` only works on the Pi itself.
    click to select it (Shift adds, Ctrl removes), ✕ deletes it. If objects come
    out merged, lower *Split at creases over*; if the model is chopped into too
    many pieces, raise it. The *Sample* button loads a cake with candles to try it.
+   After *Ask AI*, the list shows the AI's names and groups, items it suggests
+   removing are tagged, and clicking one part of a group with the Object tool
+   selects the whole group. Hover over a row to read the AI's reasoning.
 3. **Delete** the selection (`Delete` / `Backspace`). Hole rims are outlined in red,
    and the inside of the model shows through in dark red.
 4. **Close holes** (`H`) to cap every hole – or only holes up to N edges.
@@ -71,6 +94,8 @@ holes, parts and whether the mesh is watertight.
   and filling, selection helpers. No browser dependencies.
 - `src/segment.js` – splits the mesh into suggested objects at concave creases.
 - `src/samples.js` – the built-in cake-with-candles sample.
+- `server/ai.js` – server-side Claude request for *Ask AI* (hooked into the Vite
+  server by `vite.config.js`).
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.

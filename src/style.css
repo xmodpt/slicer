@@ -334,3 +334,49 @@ body.dragging #view::after {
 #object-list button:hover {
   color: var(--danger);
 }
+
+.ai {
+  margin: 8px 0;
+}
+
+.ai input[type='text'] {
+  width: 100%;
+  background: #15171c;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+#ai-run {
+  background: linear-gradient(90deg, #6b5cff, #3d7eff);
+  border-color: transparent;
+}
+
+#ai-summary {
+  word-break: normal;
+}
+
+#ai-summary:empty {
+  display: none;
+}
+
+.badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.badge.remove {
+  background: rgba(229, 72, 77, 0.25);
+  color: #ff8a8e;
+}
+
+.badge.review {
+  background: rgba(242, 212, 100, 0.2);
+  color: #f2d464;
+}
