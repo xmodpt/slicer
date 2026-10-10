@@ -8,8 +8,9 @@ import * as THREE from 'three';
 // - Works for both a perspective and an orthographic camera; the orthographic
 //   view size follows the same `distance` so switching keeps the framing.
 //
-// `buttons` maps mouse buttons (0 left, 1 middle, 2 right) to 'rotate', 'pan'
-// or null; buttons mapped to null are left alone for the selection tools.
+// `buttons` maps mouse buttons (0 left, 1 middle, 2 right) to 'rotate', 'pan',
+// 'rotate-drag' (a click is left to the tools, a drag rotates) or null (left
+// alone for the selection tools). The back/forward side buttons zoom.
 export class CameraControls extends THREE.EventDispatcher {
   constructor(domElement, perspective, orthographic) {
     super();
@@ -30,6 +31,13 @@ export class CameraControls extends THREE.EventDispatcher {
     domElement.addEventListener('pointerup', (e) => this._up(e));
     domElement.addEventListener('pointercancel', (e) => this._up(e));
     domElement.addEventListener('wheel', (e) => this._wheel(e), { passive: false });
+    // Side buttons would otherwise make the browser leave the page.
+    domElement.addEventListener('mouseup', (e) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      this.zoomAt(e.button === 4 ? 0.8 : 1.25, e.clientX, e.clientY);
+    });
+    domElement.addEventListener('mousedown', (e) => (e.button === 3 || e.button === 4) && e.preventDefault());
     this.setView([0.55, -0.75, 0.45], [0, 0, 1]);
   }
 
@@ -104,6 +112,22 @@ export class CameraControls extends THREE.EventDispatcher {
     this.target.addScaledVector(this._axis(0), -dx * s).addScaledVector(this._axis(1), dy * s);
   }
 
+  // For on-screen navigation buttons (pixels of mouse movement).
+  rotateBy(dx, dy) {
+    this._rotate(dx, dy);
+    this.update();
+  }
+
+  panBy(dx, dy) {
+    this._pan(dx, dy);
+    this.update();
+  }
+
+  zoomBy(factor) {
+    const r = this.dom.getBoundingClientRect();
+    this.zoomAt(factor, r.left + r.width / 2, r.top + r.height / 2);
+  }
+
   // Zooms by `factor`, keeping the point under the cursor in place.
   zoomAt(factor, clientX, clientY) {
     const r = this.dom.getBoundingClientRect();
@@ -143,12 +167,28 @@ export class CameraControls extends THREE.EventDispatcher {
     let action = this.buttons[e.button];
     if (action === 'rotate' && e.shiftKey) action = 'pan';
     if (!action || this._drag) return;
+    if (action === 'rotate-drag') {
+      // Becomes a rotation only once the mouse really moves.
+      this._pending = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      return;
+    }
+    this._start(action, e);
+  }
+
+  _start(action, e) {
+    this._pending = null;
     this._drag = { action, x: e.clientX, y: e.clientY, id: e.pointerId };
     this.dom.setPointerCapture(e.pointerId);
     this.dom.style.cursor = action === 'pan' ? 'move' : 'grabbing';
   }
 
   _move(e) {
+    const p = this._pending;
+    if (p && e.pointerId === p.id && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
+      this._start('rotate', e);
+      this._drag.x = p.x;
+      this._drag.y = p.y;
+    }
     const d = this._drag;
     if (!d || e.pointerId !== d.id) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
@@ -160,6 +200,7 @@ export class CameraControls extends THREE.EventDispatcher {
   }
 
   _up(e) {
+    this._pending = null;
     if (!this._drag || e.pointerId !== this._drag.id) return;
     this._drag = null;
     this.dom.style.cursor = '';

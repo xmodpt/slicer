@@ -132,3 +132,29 @@ endsolid t`;
   const tri = parseSTL(new TextEncoder().encode(ascii).buffer);
   assert.deepEqual([...tri], [0, 0, 0, 1, 0, 0, 0, 1, 0]);
 });
+
+test('placing on the plate puts the centre of mass at x=y=0 and the bottom at z=0', async () => {
+  const m = cube();
+  m.translate(10, -4, 7);
+  m.placeOnPlate();
+  const { center, minZ } = m.centerOfMass();
+  assert.ok(Math.abs(center[0]) < 1e-6 && Math.abs(center[1]) < 1e-6);
+  assert.ok(Math.abs(minZ) < 1e-6);
+  assert.ok(Math.abs(center[2] - 0.5) < 1e-6);
+
+  // An L shape: the centre of mass is not the bounding-box centre.
+  const soup = new Float32Array([...cube().toSoup(), ...cube().toSoup().map((v, i) => (i % 3 === 0 ? v + 1 : v))]);
+  const two = EditableMesh.fromSoup(soup); // 2x1x1 bar made of two cubes
+  two.placeOnPlate();
+  const c2 = two.centerOfMass().center;
+  assert.ok(Math.abs(c2[0]) < 1e-6 && Math.abs(c2[1]) < 1e-6);
+
+  // async welding gives the same mesh and reports progress
+  const big = sphere(200, 260).toSoup();
+  const progress = [];
+  const a = await EditableMesh.fromSoupAsync(big, { onProgress: (f) => progress.push(f) });
+  const b = EditableMesh.fromSoup(big);
+  assert.equal(a.vertexCount, b.vertexCount);
+  assert.deepEqual(a.indices, b.indices);
+  assert.ok(progress.length > 0 && progress.every((f) => f > 0 && f < 1));
+});

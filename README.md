@@ -52,6 +52,9 @@ typically a few cents. Everything else in the app works without a key.
 ## Workflow
 
 1. **Open** an `.stl` (binary or ASCII) with *Open STL…* or drag it onto the window.
+   A progress bar shows each loading step. By default the model is placed on
+   the plate like in a slicer: centre of mass at X = Y = 0, bottom at Z = 0
+   (untick *Place on plate when opening* to keep the file's coordinates).
 2. **Select** the triangles to remove with one of the tools:
 
    | Tool | Key | What it does |
@@ -68,9 +71,15 @@ typically a few cents. Everything else in the app works without a key.
    Shift adds, Ctrl removes. `Ctrl+A` all, `Esc` none, `Ctrl+I` invert,
    `+`/`-` grow/shrink.
 
-   **Navigation:** right-drag rotates, Shift+right-drag or middle-drag pans,
-   the wheel zooms toward the cursor, double-click sets the rotation centre,
-   hold Alt to rotate with the left button. *Rotate: Free* tumbles in every
+   **Navigation:** right-drag rotates – and so does left-drag with the click
+   tools (Object, Triangle, Part, Region; a plain click still selects).
+   Middle-drag or Shift+right-drag pans, the wheel zooms toward the cursor,
+   the mouse side buttons zoom, double-click sets the rotation centre, hold
+   Alt to rotate with the left button in any tool. The **navigation gizmo**
+   (top right, like Blender's) shows the orientation: click an axis to look
+   along it, drag the ball to rotate; below it are drag-to-zoom, drag-to-pan,
+   perspective/orthographic and plate-grid buttons. Press `?` for all
+   shortcuts. *Rotate: Free* tumbles in every
    direction; *Turntable* keeps Z up. The view buttons (Top, Front, Right…)
    look straight along an axis, and *Camera: Orthographic* removes
    perspective – together they give exact, axis-aligned Block cuts.
@@ -92,12 +101,18 @@ typically a few cents. Everything else in the app works without a key.
    Each hole is triangulated in its best-fit plane (flat cap for planar cuts),
    falling back to a fan around the centre for very twisted holes. The patch
    follows the orientation of the surrounding faces.
-5. **Split into parts** (optional): select a region (e.g. with Block) and press
+5. **Move** (optional): the move pad (bottom right) moves the model – or, with
+   a split-off part selected, just that part – by the chosen step (0.1 / 1 /
+   10 mm); hold a button to repeat. ⌂ centres it on the plate, ⤓ drops it to
+   Z = 0. Keys: arrows move on the plate (following the view), PageUp/PageDown
+   up/down, Shift = 10× step, Home = centre on plate. The panel shows the
+   position (centre of mass, bottom) and size.
+6. **Split into parts** (optional): select a region (e.g. with Block) and press
    *Split selection into new part* (`S`). The selection is detached from the
    rest and the cut faces on both sides are closed, so each part is a solid of
    its own. Example – an L-shaped wall: Top view, Orthographic, Block-drag over
    one leg starting at the corner, `S`.
-6. **Export:** *Parts & export* lists every separate part. Download each part
+7. **Export:** *Parts & export* lists every separate part. Download each part
    as its own STL, all parts in one ZIP, or *Export whole model* as one file.
 
 `Ctrl+Z` / `Ctrl+Y` undo and redo. The *Model* panel shows triangle count,
@@ -112,6 +127,7 @@ holes, parts and whether the mesh is watertight.
 - `src/samples.js` – the built-in cake-with-candles sample.
 - `server/ai.js` – server-side Claude request for *Ask AI* (hooked into the Vite
   server by `vite.config.js`).
+- `src/gizmo.js` – the navigation gizmo.
 - `src/controls.js` – camera navigation (free/turntable rotation, pan, zoom to cursor).
 - `src/zip.js` – minimal ZIP writer for the multi-part download.
 - `src/viewer.js` – Three.js rendering and GPU ID-buffer picking (selection only

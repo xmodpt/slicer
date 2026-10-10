@@ -87,6 +87,8 @@ export class Viewer {
 
     this.group = new THREE.Group();
     this.scene.add(this.group);
+    this.plate = new THREE.Group(); // build-plate grid at Z = 0
+    this.scene.add(this.plate);
     this.pickScene = new THREE.Scene();
     this.pickTarget = new THREE.WebGLRenderTarget(1, 1);
     this.pickPixels = new Uint8Array(4);
@@ -151,11 +153,63 @@ export class Viewer {
     this.pickScene.add(new THREE.Mesh(geometry, this.pickMaterial));
 
     this.setBoundaryEdges(mesh);
+    this.updatePlate();
     this.setObjects(null, null);
     this.setSelection(selection);
     if (frame) this.frame();
     this.pickDirty = true;
     this.requestRender();
+  }
+
+  // After a move: new vertex positions, same triangles (selection and object
+  // colours stay valid).
+  updatePositions(mesh) {
+    const attr = this.geometry.getAttribute('position');
+    attr.array.set(mesh.toSoup());
+    attr.needsUpdate = true;
+    this.positions = attr.array;
+    this.geometry.computeBoundingSphere();
+    this.setBoundaryEdges(mesh);
+    this.pickDirty = true;
+    this.requestRender();
+  }
+
+  // Grid on the XY plane through the origin, a bit larger than the model,
+  // with red X and green Y axis lines.
+  updatePlate() {
+    for (const child of [...this.plate.children]) {
+      this.plate.remove(child);
+      child.geometry.dispose();
+    }
+    const sphere = this.geometry.boundingSphere;
+    const reach = Math.abs(sphere.center.x) + Math.abs(sphere.center.y) + sphere.radius;
+    const step = 10 ** Math.floor(Math.log10(Math.max(reach, 1e-6) / 5));
+    const half = Math.ceil((reach * 1.3) / step) * step;
+    const grid = new THREE.GridHelper(half * 2, Math.round((half * 2) / step), 0x3a404c, 0x2a2f38);
+    grid.rotation.x = Math.PI / 2; // GridHelper lies in XZ; turn it into XY
+    grid.material.depthWrite = false;
+    this.plate.add(grid);
+    const axis = (to, color) => {
+      const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), to]);
+      return new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthWrite: false }));
+    };
+    this.plate.add(axis(new THREE.Vector3(half, 0, 0), 0xd9534f), axis(new THREE.Vector3(0, half, 0), 0x5cb85c));
+    this.plateStep = step;
+  }
+
+  // World axis (X or Y, with sign) closest to the screen's right and up
+  // directions, for arrow keys that follow the view.
+  screenAxes() {
+    const pick = (v) => (Math.abs(v.x) >= Math.abs(v.y) ? [Math.sign(v.x) || 1, 0] : [0, Math.sign(v.y) || 1]);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    let up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    // Looking straight down/up: screen-up is in the plate already; otherwise
+    // use the viewing direction projected onto the plate.
+    if (Math.abs(up.z) > 0.7) up = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const r = pick(right);
+    let u = pick(up);
+    if (u[0] === 0 ? r[0] === 0 : u[1] === 0 && r[1] === 0) u = r[0] === 0 ? [Math.sign(up.x) || 1, 0] : [0, Math.sign(up.y) || 1];
+    return { right: r, up: u };
   }
 
   setBoundaryEdges(mesh) {
@@ -328,6 +382,7 @@ export class Viewer {
     rt.texture.colorSpace = THREE.SRGBColorSpace;
     const boundaries = this.boundaryLines?.visible;
     if (this.boundaryLines) this.boundaryLines.visible = false;
+    this.plate.visible = false;
     const raw = new Uint8Array(size * size * 4);
     this.renderer.setRenderTarget(rt);
     this.renderer.render(this.scene, cam);
@@ -346,6 +401,7 @@ export class Viewer {
     this.renderer.setClearColor(prevColor, prevAlpha);
 
     if (this.boundaryLines) this.boundaryLines.visible = boundaries;
+    this.plate.visible = true;
     this.scene.remove(cam);
     rt.dispose();
     idRt.dispose();

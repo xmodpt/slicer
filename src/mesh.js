@@ -25,44 +25,24 @@ export class EditableMesh {
 
   // Merges coincident vertices of a triangle soup (9 floats per triangle) and
   // drops degenerate triangles.
-  static fromSoup(soup, { tolerance } = {}) {
-    const n = soup.length / 3;
-    let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < n; i++) {
-      for (let k = 0; k < 3; k++) {
-        const v = soup[i * 3 + k];
-        if (v < min[k]) min[k] = v;
-        if (v > max[k]) max[k] = v;
-      }
-    }
-    const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-    const eps = tolerance ?? (diag > 0 ? diag * 1e-7 : 1e-9);
-    const inv = 1 / eps;
+  static fromSoup(soup, options) {
+    const run = weld(soup, options);
+    let step = run.next();
+    while (!step.done) step = run.next();
+    return step.value;
+  }
 
-    const lookup = new Map();
-    const remap = new Uint32Array(n);
-    const positions = new Float32Array(n * 3);
-    let vCount = 0;
-    for (let i = 0; i < n; i++) {
-      const x = soup[i * 3], y = soup[i * 3 + 1], z = soup[i * 3 + 2];
-      const key = Math.round(x * inv) + ',' + Math.round(y * inv) + ',' + Math.round(z * inv);
-      let id = lookup.get(key);
-      if (id === undefined) {
-        id = vCount++;
-        lookup.set(key, id);
-        positions[id * 3] = x; positions[id * 3 + 1] = y; positions[id * 3 + 2] = z;
-      }
-      remap[i] = id;
+  // Same, but yields to the browser now and then and reports progress (0..1)
+  // so large files don't freeze the page.
+  static async fromSoupAsync(soup, { onProgress, ...options } = {}) {
+    const run = weld(soup, options);
+    let step = run.next();
+    while (!step.done) {
+      onProgress?.(step.value);
+      await new Promise((r) => setTimeout(r, 0));
+      step = run.next();
     }
-
-    const indices = new Uint32Array(n);
-    let t = 0;
-    for (let i = 0; i < n; i += 3) {
-      const a = remap[i], b = remap[i + 1], c = remap[i + 2];
-      if (a === b || b === c || a === c) continue;
-      indices[t++] = a; indices[t++] = b; indices[t++] = c;
-    }
-    return new EditableMesh(positions.slice(0, vCount * 3), indices.slice(0, t));
+    return step.value;
   }
 
   snapshot() {
@@ -102,6 +82,68 @@ export class EditableMesh {
       }
     }
     return { min, max };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Placement
+
+  // Vertices used by the triangles in `faceMask` (all vertices when null).
+  verticesOf(faceMask) {
+    const used = new Uint8Array(this.vertexCount);
+    if (!faceMask) return used.fill(1);
+    for (let t = 0; t < this.triangleCount; t++) {
+      if (faceMask[t]) for (let k = 0; k < 3; k++) used[this.indices[t * 3 + k]] = 1;
+    }
+    return used;
+  }
+
+  // Moves the vertices in `vertexMask` (all when null) by (dx, dy, dz).
+  translate(dx, dy, dz, vertexMask = null) {
+    const p = this.positions.slice();
+    for (let v = 0; v < this.vertexCount; v++) {
+      if (vertexMask && !vertexMask[v]) continue;
+      p[v * 3] += dx; p[v * 3 + 1] += dy; p[v * 3 + 2] += dz;
+    }
+    this._set(p, this.indices);
+  }
+
+  // Centre of mass of the triangles in `faceMask` (all when null), treating
+  // them as a solid; falls back to the surface centroid for open surfaces.
+  // Also returns the lowest Z, for "sitting on the plate".
+  centerOfMass(faceMask = null) {
+    const p = this.positions, ind = this.indices;
+    let vol = 0, area = 0, minZ = Infinity;
+    const cv = [0, 0, 0], ca = [0, 0, 0];
+    for (let t = 0; t < this.triangleCount; t++) {
+      if (faceMask && !faceMask[t]) continue;
+      const a = ind[t * 3] * 3, b = ind[t * 3 + 1] * 3, c = ind[t * 3 + 2] * 3;
+      minZ = Math.min(minZ, p[a + 2], p[b + 2], p[c + 2]);
+      // Signed volume of the tetrahedron (origin, a, b, c).
+      const v =
+        (p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1]) -
+          p[a + 1] * (p[b] * p[c + 2] - p[b + 2] * p[c]) +
+          p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c])) / 6;
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const wx = p[c] - p[a], wy = p[c + 1] - p[a + 1], wz = p[c + 2] - p[a + 2];
+      const ar = 0.5 * Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
+      vol += v;
+      area += ar;
+      for (let k = 0; k < 3; k++) {
+        const sum = p[a + k] + p[b + k] + p[c + k];
+        cv[k] += (v * sum) / 4;
+        ca[k] += (ar * sum) / 3;
+      }
+    }
+    if (minZ === Infinity) return null;
+    const solid = Math.abs(vol) > 1e-9 * Math.max(area, 1e-12) ** 1.5;
+    const center = solid ? cv.map((x) => x / vol) : ca.map((x) => x / (area || 1));
+    return { center, minZ };
+  }
+
+  // Puts the centre of mass at X = Y = 0 and the bottom at Z = 0.
+  placeOnPlate() {
+    const com = this.centerOfMass();
+    if (com) this.translate(-com.center[0], -com.center[1], -com.minZ);
   }
 
   // ---------------------------------------------------------------------------
@@ -636,6 +678,49 @@ export class EditableMesh {
     }
     return mask;
   }
+}
+
+// Generator behind fromSoup/fromSoupAsync: yields progress, returns the mesh.
+function* weld(soup, { tolerance } = {}) {
+  const n = soup.length / 3;
+  const CHUNK = 150000;
+  let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = soup[i * 3 + k];
+      if (v < min[k]) min[k] = v;
+      if (v > max[k]) max[k] = v;
+    }
+  }
+  const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  const eps = tolerance ?? (diag > 0 ? diag * 1e-7 : 1e-9);
+  const inv = 1 / eps;
+
+  const lookup = new Map();
+  const remap = new Uint32Array(n);
+  const positions = new Float32Array(n * 3);
+  let vCount = 0;
+  for (let i = 0; i < n; i++) {
+    if (i % CHUNK === 0 && i) yield i / n;
+    const x = soup[i * 3], y = soup[i * 3 + 1], z = soup[i * 3 + 2];
+    const key = Math.round(x * inv) + ',' + Math.round(y * inv) + ',' + Math.round(z * inv);
+    let id = lookup.get(key);
+    if (id === undefined) {
+      id = vCount++;
+      lookup.set(key, id);
+      positions[id * 3] = x; positions[id * 3 + 1] = y; positions[id * 3 + 2] = z;
+    }
+    remap[i] = id;
+  }
+
+  const indices = new Uint32Array(n);
+  let t = 0;
+  for (let i = 0; i < n; i += 3) {
+    const a = remap[i], b = remap[i + 1], c = remap[i + 2];
+    if (a === b || b === c || a === c) continue;
+    indices[t++] = a; indices[t++] = b; indices[t++] = c;
+  }
+  return new EditableMesh(positions.slice(0, vCount * 3), indices.slice(0, t));
 }
 
 function next(h) {

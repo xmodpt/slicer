@@ -5,10 +5,12 @@ import { Viewer } from './viewer.js';
 import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
+import { NavGizmo } from './gizmo.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
 const viewer = new Viewer(view);
+new NavGizmo(view, viewer, { onProjectionChange: (kind) => ($('projection').value = kind) });
 
 const state = {
   mesh: null,
@@ -24,11 +26,32 @@ const state = {
 // ---------------------------------------------------------------------------
 // Loading / saving
 
-// Shows a step in the "working" indicator and lets the browser repaint, so a
-// slow step is visible (and named) instead of the page looking stuck.
-function stage(label) {
-  $('busy').textContent = label;
+// Shows a step and its progress (0..1, or null for no bar) in the "working"
+// indicator and lets the browser repaint, so slow steps are visible.
+function stage(label, progress = null) {
+  setProgress(label, progress);
   return new Promise((r) => setTimeout(r, 30));
+}
+
+function setProgress(label, progress) {
+  if (label) $('busy-label').textContent = label;
+  const bar = $('busy-bar');
+  bar.hidden = progress === null;
+  if (progress !== null) {
+    const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
+    $('busy-fill').style.width = pct + '%';
+    $('busy-pct').textContent = pct + '%';
+  }
+}
+
+function readFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Could not read the file.'));
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 async function busy(fn) {
@@ -44,14 +67,17 @@ async function busy(fn) {
     name.classList.add('error');
   } finally {
     $('busy').style.display = 'none';
-    $('busy').textContent = 'Working…';
+    setProgress('Working…', null);
   }
 }
 
+// Progress while loading: reading 0-25%, joining 30-75%, drawing and analysis after.
 async function loadSoup(soup, name) {
-  await stage(`Joining ${(soup.length / 9).toLocaleString()} triangles…`);
-  const mesh = EditableMesh.fromSoup(soup);
+  const joining = `Joining ${(soup.length / 9).toLocaleString()} triangles…`;
+  await stage(joining, 0.3);
+  const mesh = await EditableMesh.fromSoupAsync(soup, { onProgress: (f) => setProgress(joining, 0.3 + f * 0.45) });
   if (!mesh.triangleCount) throw new Error('The file contains no triangles.');
+  if ($('auto-place').checked) mesh.placeOnPlate();
   state.mesh = mesh;
   state.fileName = name;
   state.undo = [];
@@ -59,21 +85,23 @@ async function loadSoup(soup, name) {
   $('file-name').textContent = name;
   $('file-name').classList.remove('error');
   $('drop-hint').style.display = 'none';
-  await stage('Drawing…');
+  await stage('Drawing…', 0.78);
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame: true });
-  for (const step of ANALYSIS_STEPS) {
-    await stage(step.label);
+  for (const [i, step] of ANALYSIS_STEPS.entries()) {
+    await stage(step.label, 0.82 + (i / ANALYSIS_STEPS.length) * 0.18);
     runStep(step);
   }
+  await stage('Done', 1);
+  updatePlacement();
   updateButtons();
 }
 
 function openFile(file) {
   return busy(async () => {
-    await stage('Reading file…');
-    const buffer = await file.arrayBuffer();
-    await stage('Reading triangles…');
+    await stage('Reading file…', 0);
+    const buffer = await readFile(file, (f) => setProgress('Reading file…', f * 0.25));
+    await stage('Reading triangles…', 0.27);
     await loadSoup(parseSTL(buffer), file.name);
   });
 }
@@ -183,6 +211,7 @@ window.addEventListener('drop', (e) => {
 function edit(fn) {
   if (!state.mesh) return;
   const before = state.mesh.snapshot();
+  state.moving = false;
   const result = fn(state.mesh);
   const { message, selection } = typeof result === 'object' && result ? result : { message: result };
   if (state.mesh.indices !== before.indices) {
@@ -258,6 +287,7 @@ function closeHoles() {
 
 function undo() {
   if (!state.undo.length) return;
+  state.moving = false;
   state.redo.push(state.mesh.snapshot());
   state.mesh.restore(state.undo.pop());
   refresh();
@@ -265,6 +295,7 @@ function undo() {
 
 function redo() {
   if (!state.redo.length) return;
+  state.moving = false;
   state.undo.push(state.mesh.snapshot());
   state.mesh.restore(state.redo.pop());
   refresh();
@@ -305,6 +336,7 @@ function refresh({ frame = false } = {}) {
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame });
   ANALYSIS_STEPS.forEach(runStep);
+  updatePlacement();
   updateButtons();
 }
 
@@ -592,6 +624,8 @@ function selectionChanged(faces) {
   if (faces) viewer.updateFaces(faces, state.selection);
   else viewer.setSelection(state.selection);
   updateButtons();
+  clearTimeout(selectionChanged.timer);
+  selectionChanged.timer = setTimeout(updatePlacement, 150); // not on every brush stroke
 }
 
 function applyFaces(faces, mode) {
@@ -641,8 +675,10 @@ function setTool(tool) {
 
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
+  // Click tools: a click selects, a left-drag rotates (as in slicers).
+  const clickTool = ['object', 'click', 'part', 'region'].includes(state.tool);
   viewer.controls.buttons = {
-    0: orbit ? 'rotate' : null,
+    0: orbit ? 'rotate' : clickTool ? 'rotate-drag' : null,
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
@@ -763,12 +799,130 @@ canvas.addEventListener('pointerup', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Moving the model (joystick, arrow keys)
+
+let moveStep = 1;
+let moveTimer;
+let stretchWarned = false;
+
+// What a move applies to: the selected part(s) if the selection is a
+// separate piece, otherwise the whole model.
+function moveTarget() {
+  const mesh = state.mesh;
+  if (!countSelected()) return { faces: null, vertices: null, label: 'whole model' };
+  const inSel = mesh.verticesOf(state.selection);
+  const inRest = new Uint8Array(mesh.vertexCount);
+  for (let t = 0; t < mesh.triangleCount; t++) {
+    if (!state.selection[t]) for (let k = 0; k < 3; k++) inRest[mesh.indices[t * 3 + k]] = 1;
+  }
+  if (inSel.some((v, i) => v && inRest[i])) {
+    if (!stretchWarned) toast('The selection is joined to the rest – moving the whole model. Split it (S) to move it on its own.');
+    stretchWarned = true;
+    return { faces: null, vertices: null, label: 'whole model' };
+  }
+  return { faces: state.selection, vertices: inSel, label: 'selection' };
+}
+
+function moveBy(dx, dy, dz) {
+  const mesh = state.mesh;
+  if (!mesh || (!dx && !dy && !dz)) return;
+  const target = moveTarget();
+  // A burst of moves (holding a key or button) is one undo step.
+  if (!state.moving) {
+    state.undo.push(mesh.snapshot());
+    if (state.undo.length > 50) state.undo.shift();
+    state.redo = [];
+    state.moving = true;
+  }
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => (state.moving = false), 1200);
+  mesh.translate(dx, dy, dz, target.vertices);
+  viewer.updatePositions(mesh);
+  updatePlacement();
+  updateButtons();
+}
+
+// Centre of mass to X = Y = 0 and/or bottom to Z = 0, for the move target.
+function placeTarget({ center = true, drop = true } = {}) {
+  if (!state.mesh) return;
+  const com = state.mesh.centerOfMass(moveTarget().faces);
+  if (!com) return;
+  moveBy(center ? -com.center[0] : 0, center ? -com.center[1] : 0, drop ? -com.minZ : 0);
+}
+
+const fmt = (v) => (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2));
+
+function updatePlacement() {
+  const el = $('placement');
+  $('joystick').hidden = !state.mesh;
+  if (!state.mesh) return;
+  const target = countSelected() ? state.selection : null;
+  const com = state.mesh.centerOfMass(target);
+  if (!com) return;
+  const { min, max } = state.mesh.bounds();
+  el.innerHTML =
+    `<b>${target ? 'Selection' : 'Model'}</b> X ${fmt(com.center[0])} · Y ${fmt(com.center[1])} · Z ${fmt(com.minZ)}` +
+    `<br>Size ${fmt(max[0] - min[0])} × ${fmt(max[1] - min[1])} × ${fmt(max[2] - min[2])}`;
+}
+
+// Joystick buttons repeat while held.
+for (const b of document.querySelectorAll('#joystick [data-move]')) {
+  let timer;
+  const stop = () => clearTimeout(timer);
+  const once = () => {
+    const [x, y, z] = b.dataset.move.split(',').map(Number);
+    moveBy(x * moveStep, y * moveStep, z * moveStep);
+  };
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    once();
+    const repeat = (delay) => (timer = setTimeout(() => (once(), repeat(70)), delay));
+    repeat(400);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
+}
+for (const b of document.querySelectorAll('#joystick [data-step]')) {
+  b.addEventListener('click', () => {
+    moveStep = +b.dataset.step;
+    for (const o of document.querySelectorAll('#joystick [data-step]')) o.classList.toggle('active', o === b);
+  });
+}
+$('move-center').addEventListener('click', () => placeTarget({ center: true, drop: true }));
+$('move-drop').addEventListener('click', () => placeTarget({ center: false, drop: true }));
+$('help-open').addEventListener('click', () => ($('help').hidden = false));
+$('help-close').addEventListener('click', () => ($('help').hidden = true));
+
+// ---------------------------------------------------------------------------
 // Keyboard
 
 const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block' };
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
+  if (e.target instanceof HTMLSelectElement) return;
+  // Arrow keys move along the plate axis closest to that screen direction,
+  // PageUp/PageDown move up/down; Shift moves 10x further.
+  const arrows = { ArrowRight: ['right', 1], ArrowLeft: ['right', -1], ArrowUp: ['up', 1], ArrowDown: ['up', -1] };
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && state.mesh) {
+    const step = moveStep * (e.shiftKey ? 10 : 1);
+    if (arrows[e.key]) {
+      const [dir, sign] = arrows[e.key];
+      const [ax, ay] = viewer.screenAxes()[dir];
+      moveBy(ax * sign * step, ay * sign * step, 0);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'PageUp' || e.key === 'PageDown') {
+      moveBy(0, 0, (e.key === 'PageUp' ? 1 : -1) * step);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Home') {
+      placeTarget();
+      e.preventDefault();
+      return;
+    }
+  }
   const mod = e.ctrlKey || e.metaKey;
   if (e.key === 'Alt') {
     orbitOverride = true;
@@ -789,7 +943,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     deleteSelected();
   } else if (e.key === 'Escape') {
-    runSelection('none');
+    if (!$('help').hidden) $('help').hidden = true;
+    else runSelection('none');
   } else if (e.key === '+' || e.key === '=') {
     runSelection('grow');
   } else if (e.key === '-') {
@@ -800,6 +955,8 @@ window.addEventListener('keydown', (e) => {
     if (state.mesh) closeHoles();
   } else if (e.key.toLowerCase() === 'f') {
     viewer.frame();
+  } else if (e.key === '?') {
+    $('help').hidden = !$('help').hidden;
   } else if (toolKeys[e.key]) {
     setTool(toolKeys[e.key]);
   } else {
@@ -834,3 +991,8 @@ setTool('object');
 updateButtons();
 
 window.__appStarted = true;
+
+// Unsaved edits: ask before the page is closed or navigated away from.
+window.addEventListener('beforeunload', (e) => {
+  if (state.undo.length) e.preventDefault();
+});
