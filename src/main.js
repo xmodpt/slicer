@@ -133,6 +133,13 @@ function openFile(file) {
   });
 }
 
+// The desktop app opens .stl files double-clicked in Explorer / Finder / a
+// file manager through this (the file is served by the app's local server).
+window.openFromUrl = async (url, name) => {
+  const blob = await (await fetch(url)).blob();
+  return openFile(new File([blob], name));
+};
+
 $('file-input').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) openFile(file);

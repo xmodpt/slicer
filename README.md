@@ -3,34 +3,50 @@
 A browser app to open STL files, delete parts of the mesh, and close the model
 again so it's watertight.
 
-**Version 1.0.0**
+**Version 1.0.1**
 
-## Windows app (portable)
+## Desktop apps – Windows, macOS, Linux
 
-A single `.exe` – nothing to install. Download `STL-Mesh-Editor-1.0.0-portable.exe`
-from the repository's **Releases** page (or *Actions → Windows app* → the
-latest run → *Artifacts*) and double-click it.
+Download from the repository's **Releases** page:
 
-- Windows may say *"Windows protected your PC"* because the app isn't
-  code-signed: click **More info → Run anyway**.
-- Downloads go through a normal *Save as* dialog (no browser warnings).
-- *Ask AI* (optional): put a file named `.env` next to the .exe containing
-  `ANTHROPIC_API_KEY=sk-ant-...` and restart the app.
+| System | File | How |
+|---|---|---|
+| Windows | `STL-Mesh-Editor-<version>-setup.exe` | Installer: Start menu and desktop shortcut, uninstall in *Settings → Apps* |
+| Windows | `STL-Mesh-Editor-<version>-portable.exe` | No install – just run it (e.g. from a USB stick) |
+| macOS | `STL-Mesh-Editor-<version>-mac-universal.dmg` | Open it and drag the app to *Applications* (Intel and Apple Silicon) |
+| Linux | `STL-Mesh-Editor-<version>-linux-x86_64.AppImage` / `-arm64.AppImage` | `chmod +x` it and run – works on most distributions |
+| Linux | `stl-mesh-editor_<version>_amd64.deb` / `_arm64.deb` | Ubuntu, Debian, Raspberry Pi OS (64-bit): `sudo apt install ./stl-mesh-editor_….deb` |
 
-**Building it yourself** (on Windows, with Node.js 20+):
+The installed apps open `.stl` files when you double-click them (*Open with →
+STL Mesh Editor*). Downloads use a normal *Save as* dialog.
+
+**The apps aren't code-signed** (that needs paid certificates), so the first
+start shows a warning:
+- **Windows:** *"Windows protected your PC"* → **More info → Run anyway**.
+- **macOS:** *"can't be opened because it is from an unidentified developer"*
+  or *"is damaged"* → right-click the app → **Open**, or in Terminal:
+  `xattr -cr "/Applications/STL Mesh Editor.app"`.
+
+**Ask AI** (optional): put a file named `.env` containing
+`ANTHROPIC_API_KEY=sk-ant-...` next to the portable .exe, or in the app's data
+folder (`%APPDATA%\STL Mesh Editor` on Windows, `~/Library/Application
+Support/STL Mesh Editor` on macOS, `~/.config/STL Mesh Editor` on Linux), and
+restart the app.
+
+**Building them:** the workflow `.github/workflows/desktop-apps.yml` builds
+all of them on GitHub's Windows, macOS and Linux machines. On GitHub:
+*Releases → Draft a new release* → *Choose a tag*: type e.g. `v1.0.1` (on the
+branch with this code) → *Publish release*. After about 10 minutes the files
+appear under the release's *Assets*. To build one yourself (Node.js 20+, on
+that system):
 
 ```bash
 npm install
-npm run desktop:win      # → desktop/release/STL-Mesh-Editor-<version>-portable.exe
-npm run desktop          # or just run it as a desktop app
+npm run desktop:win      # Windows → desktop/release/
+npm run desktop:mac      # macOS (needs a Mac)
+npm run desktop:linux    # Linux
+npm run desktop          # just run the app
 ```
-
-**On GitHub (no Windows PC needed):** the workflow
-`.github/workflows/windows-app.yml` builds the .exe on a Windows machine and
-attaches it to a release. On GitHub: *Releases → Draft a new release* →
-*Choose a tag*: type `v1.0.0` (create it on the branch with this code) →
-*Publish release*. A few minutes later the .exe appears under the release's
-*Assets*.
 
 ## Run
 

@@ -1,0 +1,63 @@
+# Builds the desktop apps and installers:
+#   Windows – setup installer + portable .exe
+#   macOS   – .dmg (Intel and Apple Silicon in one)
+#   Linux   – .AppImage and .deb, x64 and arm64 (Raspberry Pi)
+#
+# - Publish a GitHub Release (Releases → Draft a new release, e.g. tag v1.0.0):
+#   all files are attached to that release.
+# - Or run it by hand (Actions → Desktop apps → Run workflow): the files are
+#   kept as downloads on the run's page.
+name: Desktop apps
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+            files: desktop/release/*.exe
+          - os: macos-latest
+            script: dist:mac
+            files: desktop/release/*.dmg
+          - os: ubuntu-latest
+            script: dist:linux
+            files: |
+              desktop/release/*.AppImage
+              desktop/release/*.deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the web app
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Build the app and installers
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STL-Mesh-Editor-${{ runner.os }}
+          path: ${{ matrix.files }}
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.files }}
+          tag_name: ${{ github.ref_name }}
+          append_body: true
