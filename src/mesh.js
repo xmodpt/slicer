@@ -72,6 +72,22 @@ export class EditableMesh {
     return out;
   }
 
+  // Bounding box of a list of triangles.
+  boundsOfFaces(faces) {
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    const p = this.positions, ind = this.indices;
+    for (const t of faces) {
+      for (let c = 0; c < 3; c++) {
+        const v = ind[t * 3 + c] * 3;
+        for (let k = 0; k < 3; k++) {
+          if (p[v + k] < min[k]) min[k] = p[v + k];
+          if (p[v + k] > max[k]) max[k] = p[v + k];
+        }
+      }
+    }
+    return { min, max };
+  }
+
   // Bounding box of all vertices, or of the triangles in `faceMask`.
   bounds(faceMask = null) {
     if (faceMask) {

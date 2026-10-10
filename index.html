@@ -33,6 +33,7 @@
           <button data-tool="block" title="Drag a rectangle to cut the model along its edges and select the block inside (K)">Block<span class="key">K</span></button>
           <button data-tool="part" title="Click to select a whole connected part (P)">Part<span class="key">P</span></button>
           <button data-tool="region" title="Click to select a smooth/flat region (G)">Region<span class="key">G</span></button>
+          <button data-tool="move" title="Drag a part to move it on the plate; Shift = up/down, Ctrl = snap to the step (M)">Move<span class="key">M</span></button>
           <button data-tool="rotate" title="Drag on the model to rotate it on the plate; Shift snaps to 15° (R)">Rotate<span class="key">R</span></button>
           <button data-tool="layflat" title="Click a face to lay the model flat on it (L)">Lay flat<span class="key">L</span></button>
           <button data-tool="cut" title="Cut the model with a plane, close both halves and add glue pins (C)">Cut<span class="key">C</span></button>
@@ -40,6 +41,7 @@
         <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
         <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
         <label class="option check" data-for="box"><input id="box-through" type="checkbox" /> Select through (include hidden faces)</label>
+        <p class="option hint" data-for="move">Drag a part to slide it across the plate under the mouse – it gets selected if it wasn't. Hold Shift to move it up/down, Ctrl to snap to the move step. A selection joined to the rest moves the whole model; Split it first. Dragging on empty space rotates the view.</p>
         <p class="option hint" data-for="rotate">Drag left/right on the view to spin the model (or a selected split-off part) around its centre on the plate. Hold Shift to snap to 15°. Q / E rotate by the step set on the move pad.</p>
         <p class="option hint" data-for="layflat">Click a face of the model: the whole model turns as one group so that face (and the flat area around it) lies on the plate. To turn only some parts, select them first and click a face on them.</p>
         <div class="option cut-planes" data-for="cut">Plane
@@ -64,6 +66,14 @@
           <button id="ai-run" class="wide">Ask AI to identify objects</button>
           <p id="ai-summary" class="muted"></p>
           <button id="ai-select-remove" class="wide" hidden>Select everything the AI suggests removing</button>
+        </div>
+        <div id="floating-warning" class="warning" hidden>
+          <p id="floating-text"></p>
+          <div class="row">
+            <button id="floating-select">Select them</button>
+            <button id="floating-delete" class="danger">Delete them</button>
+            <button id="floating-dismiss" title="Hide this warning">Ignore</button>
+          </div>
         </div>
         <ul id="object-list" class="tree"></ul>
         <button id="show-all" class="wide" hidden>Show everything</button>
@@ -93,6 +103,7 @@
 
       <section>
         <h2>Parts &amp; export</h2>
+        <label class="option check"><input id="export-selected" type="checkbox" /> Only export the selected part(s)</label>
         <button id="export-zip" class="wide primary" disabled>Download all parts (.zip)</button>
         <button id="export-each" class="wide" disabled>Download each part as its own STL</button>
       </section>
@@ -181,6 +192,7 @@
             <li><kbd>K</kbd> = Block cut &amp; select</li>
             <li><kbd>P</kbd> = Part select</li>
             <li><kbd>G</kbd> = Region select</li>
+            <li><kbd>M</kbd> = Move part with the mouse</li>
             <li><kbd>R</kbd> = Rotate on plate</li>
             <li><kbd>L</kbd> = Lay flat</li>
             <li><kbd>C</kbd> = Cut / plane cut</li>

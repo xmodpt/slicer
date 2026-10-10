@@ -140,10 +140,18 @@ function download(data, name, type = 'model/stl') {
 const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'model';
 const baseName = () => safeName(modelName());
 
+const exportSelectedOnly = () => $('export-selected').checked;
+
 $('export').addEventListener('click', () => {
   const { mesh } = state;
+  if (exportSelectedOnly()) {
+    if (!countSelected()) return toast('Select something to export first');
+    const part = mesh.extractFaces(state.selection);
+    return download(writeBinarySTL(part.positions, part.indices), baseName() + '_selection.stl');
+  }
   download(writeBinarySTL(mesh.positions, mesh.indices), baseName() + '_edited.stl');
 });
+$('export-selected').addEventListener('change', updateButtons);
 
 const MAX_PARTS_LISTED = 50;
 
@@ -153,19 +161,27 @@ function partFile(part, i) {
   return { name: name + '.stl', data: new Uint8Array(writeBinarySTL(m.positions, m.indices)) };
 }
 
+// Parts to export: all, or (with the toggle) the ones that have a selected face.
 function exportableParts() {
-  const parts = state.parts;
+  let parts = state.parts.map((p, i) => ({ ...p, index: i }));
+  if (exportSelectedOnly()) {
+    parts = parts.filter((p) => p.faces.some((t) => state.selection[t]));
+    if (!parts.length) {
+      toast('Select something to export first');
+      return [];
+    }
+  }
   if (parts.length > 100 && !confirm(`The model has ${parts.length} separate pieces – export ${parts.length} files?`)) return [];
   return parts;
 }
 
 $('export-zip').addEventListener('click', () => {
-  const files = exportableParts().map(partFile);
-  if (files.length) download(makeZip(files), baseName() + '_parts.zip', 'application/zip');
+  const files = exportableParts().map((p) => partFile(p, p.index));
+  if (files.length) download(makeZip(files), baseName() + (exportSelectedOnly() ? '_selected_parts.zip' : '_parts.zip'), 'application/zip');
 });
 
 $('export-each').addEventListener('click', async () => {
-  const files = exportableParts().map(partFile);
+  const files = exportableParts().map((p) => partFile(p, p.index));
   for (const f of files) {
     download(f.data, f.name);
     await new Promise((r) => setTimeout(r, 400)); // browsers drop rapid back-to-back downloads
@@ -173,9 +189,20 @@ $('export-each').addEventListener('click', async () => {
 });
 
 function renderPartList() {
-  const parts = (state.parts = state.mesh.parts());
-  $('export-zip').disabled = $('export-each').disabled = parts.length < 1;
-  $('export-zip').textContent = parts.length > 1 ? `Download all ${parts.length} parts (.zip)` : 'Download part (.zip)';
+  state.parts = state.mesh.parts();
+  updateExportLabels();
+}
+
+function updateExportLabels() {
+  const parts = state.parts || [];
+  const only = exportSelectedOnly();
+  const selected = only && state.mesh ? parts.filter((p) => p.faces.some((t) => state.selection[t])).length : parts.length;
+  $('export').textContent = only ? 'Export selection' : 'Export whole model';
+  $('export-zip').disabled = $('export-each').disabled = selected < 1;
+  $('export-zip').textContent = only
+    ? `Download ${selected} selected part${selected === 1 ? '' : 's'} (.zip)`
+    : parts.length > 1 ? `Download all ${parts.length} parts (.zip)` : 'Download part (.zip)';
+  $('export-each').textContent = only ? 'Download selected parts as separate STLs' : 'Download each part as its own STL';
 }
 
 let dragDepth = 0;
@@ -311,7 +338,59 @@ const ANALYSIS_STEPS = [
   { label: 'Finding objects…', run: () => analyzeObjects() },
   { label: 'Checking for holes…', run: () => updateStats() },
   { label: 'Listing parts…', run: () => renderPartList() },
+  { label: 'Looking for floating parts…', run: () => checkFloating() },
 ];
+
+// Floating parts: separate pieces that neither rest on the plate (the lowest
+// point of the model) nor touch a piece that does – directly or through
+// others. They would print in mid-air. Touching is judged by bounding boxes,
+// so only clearly separate pieces are reported.
+function findFloating() {
+  const parts = state.parts || [];
+  if (parts.length < 2 || parts.length > 3000) return [];
+  const boxes = parts.map((p) => state.mesh.boundsOfFaces(p.faces));
+  const floor = Math.min(...boxes.map((b) => b.min[2]));
+  const { min, max } = state.mesh.bounds();
+  const eps = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1e-3;
+  const touch = (a, b) => [0, 1, 2].every((k) => a.min[k] <= b.max[k] + eps && b.min[k] <= a.max[k] + eps);
+  const supported = boxes.map((b) => b.min[2] <= floor + eps);
+  const queue = boxes.map((_, i) => i).filter((i) => supported[i]);
+  while (queue.length) {
+    const i = queue.pop();
+    boxes.forEach((b, j) => {
+      if (!supported[j] && touch(boxes[i], b)) {
+        supported[j] = true;
+        queue.push(j);
+      }
+    });
+  }
+  return parts.filter((_, i) => !supported[i]);
+}
+
+function checkFloating() {
+  const floating = (state.floating = state.mesh ? findFloating() : []);
+  const before = state.floatingFirst || new Set();
+  state.floatingFirst = new Set(floating.map((p) => p.faces[0]));
+  if (before.size !== state.floatingFirst.size || [...before].some((f) => !state.floatingFirst.has(f))) renderObjectList();
+  const box = $('floating-warning');
+  box.hidden = !floating.length;
+  if (!floating.length) return;
+  const tris = floating.reduce((n, p) => n + p.faces.length, 0);
+  $('floating-text').textContent =
+    `${floating.length} floating part${floating.length === 1 ? '' : 's'} (${tris.toLocaleString()} triangles) ` +
+    `${floating.length === 1 ? "isn't" : "aren't"} touching the plate or anything else and would print in mid-air. ` +
+    'Delete them unless you plan to move them down.';
+  if (state.floatingCount !== floating.length) toast(`⚠ ${floating.length} floating part(s) found – see the Objects panel`);
+  state.floatingCount = floating.length;
+}
+
+const floatingFaces = () => (state.floating || []).flatMap((p) => Array.from(p.faces));
+$('floating-select').addEventListener('click', () => applyFaces(floatingFaces(), 'replace'));
+$('floating-delete').addEventListener('click', () => {
+  applyFaces(floatingFaces(), 'replace');
+  deleteSelected();
+});
+$('floating-dismiss').addEventListener('click', () => ($('floating-warning').hidden = true));
 
 // A failing analysis step must not hide the model.
 function runStep(step) {
@@ -367,7 +446,8 @@ function countSelected() {
 function updateButtons() {
   const has = !!state.mesh;
   const selected = has ? countSelected() : 0;
-  $('export').disabled = !has;
+  $('export').disabled = !has || (exportSelectedOnly() && !selected);
+  if (has) updateExportLabels();
   $('delete').disabled = !selected;
   $('split').disabled = !selected;
   $('fill').disabled = !has || !state.holes;
@@ -499,6 +579,7 @@ function renderObjectList() {
       name: partName(i),
       rename: (v) => (state.partNames[i] = v),
       meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
+      badge: state.floatingFirst?.has(part.faces[0]) ? 'floating' : null,
       faces: () => part.faces,
       hoverIds: rows.flatMap((r) => r.ids),
       group: rows.length > 1,
@@ -849,13 +930,13 @@ function updateControls() {
     const r = canvas.getBoundingClientRect();
     return viewer.faceAt(e.clientX - r.left, e.clientY - r.top) >= 0;
   };
-  const dragOnModelTool = ['rotate', 'brush'].includes(state.tool);
+  const dragOnModelTool = ['rotate', 'brush', 'move'].includes(state.tool);
   viewer.controls.buttons = {
     0: orbit ? 'rotate' : clickTool ? 'rotate-drag' : dragOnModelTool ? (e) => (onModel(e) ? null : 'rotate') : null,
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
-  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize' };
+  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize', move: 'move' };
   view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
@@ -898,6 +979,7 @@ canvas.addEventListener('pointerdown', (e) => {
   drag = { start: p, mode: modeFor(e, state.tool === 'brush' ? 'add' : 'replace'), moved: false };
   if (state.tool === 'brush') brushAt(p, drag.mode);
   if (state.tool === 'rotate') startSpin(p.x);
+  if (state.tool === 'move') startSlide(p);
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -910,6 +992,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 3) drag.moved = true;
   if (state.tool === 'rotate') updateSpin(p.x, e.shiftKey);
+  if (state.tool === 'move') updateSlide(p, e.shiftKey, e.ctrlKey || e.metaKey);
   if (state.tool === 'brush') brushAt(p, drag.mode);
   if (state.tool === 'box' || state.tool === 'block') {
     boxRect.classList.toggle('block', state.tool === 'block');
@@ -937,6 +1020,10 @@ canvas.addEventListener('pointerup', (e) => {
 
   if (tool === 'rotate') {
     endSpin();
+    return;
+  }
+  if (tool === 'move') {
+    endSlide();
     return;
   }
   if (tool === 'block') {
@@ -1029,7 +1116,10 @@ function transformBurst(change) {
     state.moving = true;
   }
   clearTimeout(moveTimer);
-  moveTimer = setTimeout(() => (state.moving = false), 1200);
+  moveTimer = setTimeout(() => {
+    state.moving = false;
+    checkFloating();
+  }, 800);
   change();
   viewer.updatePositions(mesh);
   updatePlacement();
@@ -1107,6 +1197,75 @@ function endSpin() {
   state.moving = false;
   transformBurst(() => state.mesh.rotate([0, 0, 1], (angle * Math.PI) / 180, pivot, target.vertices));
   state.moving = false;
+}
+
+// Move tool: drag a part across the plate under the mouse (Shift: up/down,
+// Ctrl: snap to the move step).
+let slide = null;
+
+function startSlide(p) {
+  const mesh = state.mesh;
+  const face = viewer.faceAt(p.x, p.y);
+  if (face < 0) return;
+  if (!state.selection[face]) {
+    const piece = mesh.selectConnected([face], new Uint8Array(mesh.triangleCount));
+    const faces = [];
+    piece.forEach((v, t) => v && faces.push(t));
+    applyFaces(faces, 'replace');
+  }
+  const grab = viewer.pointAt(p.x, p.y);
+  if (!grab) return;
+  state.moving = false;
+  slide = { base: mesh.snapshot(), target: moveTarget(), grab, delta: [0, 0, 0], frame: 0 };
+}
+
+function updateSlide(p, vertical, snap) {
+  if (!slide) return;
+  const ray = viewer.rayAt(p.x, p.y);
+  const g = slide.grab;
+  let d;
+  if (vertical) {
+    // Vertical plane through the grab point, facing the camera.
+    const n = new THREE.Vector3(ray.direction.x, ray.direction.y, 0);
+    if (n.lengthSq() < 1e-8) return;
+    const hit = ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), g), new THREE.Vector3());
+    if (!hit) return;
+    d = [0, 0, hit.z - g.z];
+  } else {
+    if (Math.abs(ray.direction.z) < 0.02) return; // looking along the plate
+    const hit = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -g.z), new THREE.Vector3());
+    if (!hit) return;
+    d = [hit.x - g.x, hit.y - g.y, 0];
+  }
+  if (snap) d = d.map((x) => Math.round(x / moveStep) * moveStep);
+  slide.delta = d;
+  if (slide.frame) return;
+  slide.frame = requestAnimationFrame(() => {
+    if (!slide) return;
+    slide.frame = 0;
+    state.mesh.restore(slide.base);
+    state.mesh.translate(...slide.delta, slide.target.vertices);
+    viewer.updatePositions(state.mesh);
+    updatePlacement();
+    const [x, y, z] = slide.delta;
+    const el = $('angle-readout');
+    el.hidden = false;
+    el.textContent = `ΔX ${x.toFixed(1)}  ΔY ${y.toFixed(1)}  ΔZ ${z.toFixed(1)}`;
+  });
+}
+
+function endSlide() {
+  if (!slide) return;
+  cancelAnimationFrame(slide.frame);
+  const { base, delta, target } = slide;
+  slide = null;
+  showAngle(null);
+  state.mesh.restore(base);
+  if (!delta.some((x) => x)) {
+    viewer.updatePositions(state.mesh);
+    return;
+  }
+  transformBurst(() => state.mesh.translate(...delta, target.vertices));
 }
 
 function showAngle(angle) {
@@ -1287,7 +1446,7 @@ function cutClick(face, p) {
 const toolKeys = {
   1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat',
   // Letters, easier to remember:
-  v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut',
+  v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut', m: 'move',
 };
 
 window.addEventListener('keydown', (e) => {

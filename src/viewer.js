@@ -372,6 +372,14 @@ export class Viewer {
     this.controls.update();
   }
 
+  // Camera ray through a CSS-pixel position.
+  rayAt(x, y) {
+    const ndc = new THREE.Vector2((x / this.canvas.clientWidth) * 2 - 1, 1 - (y / this.canvas.clientHeight) * 2);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.camera);
+    return ray.ray;
+  }
+
   // Surface point under a CSS-pixel position, or null.
   pointAt(x, y) {
     const face = this.faceAt(x, y);

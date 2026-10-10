@@ -64,6 +64,7 @@ The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
 | `K` | Block cut & select | `Del` | Delete selection |
 | `P` | Part select | `F` | Frame the model |
 | `G` | Region select | `Q` / `E` | Turn left / right on the plate |
+| `M` | Move part with the mouse | | |
 | arrows | Move on the plate | `PgUp` / `PgDn` | Move up / down |
 | `Home` | Centre on the plate | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+A` / `Ctrl+I` / `Esc` | All / invert / none | `+` / `−` | Grow / shrink selection |
@@ -139,6 +140,9 @@ Number keys 1–9 and 0 also pick tools.
    Z = 0. Keys: arrows move on the plate (following the view), PageUp/PageDown
    up/down, Shift = 10× step, Home = centre on plate. The panel shows the
    position (centre of mass, bottom) and size.
+   **Move with the mouse:** the *Move* tool (`M`) – drag a part and it slides
+   across the plate under the cursor (it gets selected if it wasn't); Shift
+   moves it up/down, Ctrl snaps to the move step.
    **Rotate:** the *Rotate* tool (`9`) spins the model (or selected part) on
    the plate as you drag left/right – Shift snaps to 15°. The move pad's ⟲ ⟳
    buttons and `Q` / `E` rotate by the chosen angle (5/15/45/90°); *X 90°* /
@@ -165,7 +169,16 @@ Number keys 1–9 and 0 also pick tools.
    one leg starting at the corner, `S`.
 7. **Export:** download every part as its own STL, all parts in one ZIP, or
    *Export whole model* as one file. Single parts download from their row in
-   the outliner.
+   the outliner. Tick *Only export the selected part(s)* to export just the
+   selection – as one STL (*Export selection*) or the selected parts as a ZIP
+   or separate files.
+
+**Floating parts:** after loading and after every change, pieces that don't
+rest on the plate and don't touch anything that does (directly or through
+other pieces) are reported in the Objects panel and tagged *floating* in the
+tree – they would print in mid-air. *Select them* / *Delete them* deal with
+them in one click; touching is judged by bounding boxes, so only clearly
+separate pieces are reported.
 
 `Ctrl+Z` / `Ctrl+Y` undo and redo. The *Model* panel shows triangle count,
 holes, parts and whether the mesh is watertight.

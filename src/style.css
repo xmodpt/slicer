@@ -904,3 +904,35 @@ body.dragging #view::after {
   font-weight: 700;
   opacity: 0.55;
 }
+
+.warning {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid #a8862c;
+  background: rgba(242, 212, 100, 0.1);
+  border-radius: 8px;
+}
+
+.warning p {
+  margin: 0 0 6px;
+  color: #f2d464;
+  font-size: 12px;
+}
+
+.warning p::before {
+  content: '⚠ ';
+}
+
+.warning .row {
+  margin: 0;
+}
+
+.warning button {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.badge.floating {
+  background: rgba(242, 212, 100, 0.2);
+  color: #f2d464;
+}
