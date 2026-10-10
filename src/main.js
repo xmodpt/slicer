@@ -24,9 +24,16 @@ const state = {
 // ---------------------------------------------------------------------------
 // Loading / saving
 
+// Shows a step in the "working" indicator and lets the browser repaint, so a
+// slow step is visible (and named) instead of the page looking stuck.
+function stage(label) {
+  $('busy').textContent = label;
+  return new Promise((r) => setTimeout(r, 30));
+}
+
 async function busy(fn) {
   $('busy').style.display = 'block';
-  await new Promise((r) => setTimeout(r, 20)); // let the indicator paint
+  await stage('Working…');
   try {
     return await fn();
   } catch (err) {
@@ -37,10 +44,12 @@ async function busy(fn) {
     name.classList.add('error');
   } finally {
     $('busy').style.display = 'none';
+    $('busy').textContent = 'Working…';
   }
 }
 
-function loadSoup(soup, name) {
+async function loadSoup(soup, name) {
+  await stage(`Joining ${(soup.length / 9).toLocaleString()} triangles…`);
   const mesh = EditableMesh.fromSoup(soup);
   if (!mesh.triangleCount) throw new Error('The file contains no triangles.');
   state.mesh = mesh;
@@ -50,11 +59,23 @@ function loadSoup(soup, name) {
   $('file-name').textContent = name;
   $('file-name').classList.remove('error');
   $('drop-hint').style.display = 'none';
-  refresh({ frame: true });
+  await stage('Drawing…');
+  state.selection = new Uint8Array(mesh.triangleCount);
+  viewer.setMesh(mesh, state.selection, { frame: true });
+  for (const step of ANALYSIS_STEPS) {
+    await stage(step.label);
+    runStep(step);
+  }
+  updateButtons();
 }
 
 function openFile(file) {
-  return busy(async () => loadSoup(parseSTL(await file.arrayBuffer()), file.name));
+  return busy(async () => {
+    await stage('Reading file…');
+    const buffer = await file.arrayBuffer();
+    await stage('Reading triangles…');
+    await loadSoup(parseSTL(buffer), file.name);
+  });
 }
 
 $('file-input').addEventListener('change', (e) => {
@@ -64,9 +85,7 @@ $('file-input').addEventListener('change', (e) => {
 });
 
 $('sample').addEventListener('click', () =>
-  busy(() => {
-    loadSoup(cakeWithCandles(), 'cake-with-candles.stl');
-  }),
+  busy(() => loadSoup(cakeWithCandles(), 'cake-with-candles.stl')),
 );
 
 function download(data, name, type = 'model/stl') {
@@ -84,25 +103,26 @@ $('export').addEventListener('click', () => {
   download(writeBinarySTL(mesh.positions, mesh.indices), baseName() + '_edited.stl');
 });
 
-// Each separate shell of the mesh is a part, largest first.
-function partMasks() {
-  const { component, count, sizes } = state.mesh.connectedComponents();
-  const order = [...Array(count).keys()].sort((a, b) => sizes[b] - sizes[a]);
-  return order.map((c) => Uint8Array.from(component, (x) => (x === c ? 1 : 0)));
+const MAX_PARTS_LISTED = 50;
+
+function partFile(part, i) {
+  const m = state.mesh.extractFaceList(part.faces);
+  return { name: `${baseName()}_part${i + 1}.stl`, data: new Uint8Array(writeBinarySTL(m.positions, m.indices)) };
 }
 
-function partFile(mask, i) {
-  const part = state.mesh.extractFaces(mask);
-  return { name: `${baseName()}_part${i + 1}.stl`, data: new Uint8Array(writeBinarySTL(part.positions, part.indices)) };
+function exportableParts() {
+  const parts = state.parts;
+  if (parts.length > 100 && !confirm(`The model has ${parts.length} separate pieces – export ${parts.length} files?`)) return [];
+  return parts;
 }
 
 $('export-zip').addEventListener('click', () => {
-  const files = partMasks().map(partFile);
-  download(makeZip(files), baseName() + '_parts.zip', 'application/zip');
+  const files = exportableParts().map(partFile);
+  if (files.length) download(makeZip(files), baseName() + '_parts.zip', 'application/zip');
 });
 
 $('export-each').addEventListener('click', async () => {
-  const files = partMasks().map(partFile);
+  const files = exportableParts().map(partFile);
   for (const f of files) {
     download(f.data, f.name);
     await new Promise((r) => setTimeout(r, 400)); // browsers drop rapid back-to-back downloads
@@ -112,41 +132,29 @@ $('export-each').addEventListener('click', async () => {
 function renderPartList() {
   const list = $('part-list');
   list.innerHTML = '';
-  const masks = partMasks();
-  // Parts with open edges are not watertight.
-  const { offsets, heEdge } = state.mesh.topology();
-  const openFace = new Uint8Array(state.mesh.triangleCount);
-  for (let h = 0; h < heEdge.length; h++) {
-    const e = heEdge[h];
-    if (offsets[e + 1] - offsets[e] !== 2) openFace[(h / 3) | 0] = 1;
-  }
-  masks.forEach((mask, i) => {
-    let tris = 0, open = false;
-    mask.forEach((v, t) => {
-      if (v) {
-        tris++;
-        if (openFace[t]) open = true;
-      }
-    });
+  const parts = (state.parts = state.mesh.parts());
+  parts.slice(0, MAX_PARTS_LISTED).forEach((part, i) => {
     const li = document.createElement('li');
     li.title = 'Click to select this part';
     li.innerHTML = `<span class="name">Part ${i + 1}</span>
-      <span class="meta">${tris.toLocaleString()} tris${open ? ' · <span class="bad">open</span>' : ''}</span>
+      <span class="meta">${part.faces.length.toLocaleString()} tris${part.open ? ' · <span class="bad">open</span>' : ''}</span>
       <button title="Download this part">STL</button>`;
-    li.addEventListener('click', (e) => {
-      const faces = [];
-      mask.forEach((v, t) => v && faces.push(t));
-      applyFaces(faces, modeFor(e, 'replace'));
-    });
+    li.addEventListener('click', (e) => applyFaces(part.faces, modeFor(e, 'replace')));
     li.querySelector('button').addEventListener('click', (e) => {
       e.stopPropagation();
-      const f = partFile(mask, i);
+      const f = partFile(part, i);
       download(f.data, f.name);
     });
     list.append(li);
   });
-  $('export-zip').disabled = $('export-each').disabled = masks.length < 1;
-  $('export-zip').textContent = masks.length > 1 ? `Download all ${masks.length} parts (.zip)` : 'Download part (.zip)';
+  if (parts.length > MAX_PARTS_LISTED) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.textContent = `+ ${parts.length - MAX_PARTS_LISTED} more small pieces` + (parts.length > 500 ? ' – the triangles in this file may not be connected to each other' : '');
+    list.append(li);
+  }
+  $('export-zip').disabled = $('export-each').disabled = parts.length < 1;
+  $('export-zip').textContent = parts.length > 1 ? `Download all ${parts.length} parts (.zip)` : 'Download part (.zip)';
 }
 
 let dragDepth = 0;
@@ -274,20 +282,29 @@ for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('cl
 $('projection').addEventListener('change', (e) => viewer.setProjection(e.target.value));
 $('rotate-mode').addEventListener('change', (e) => viewer.controls.setMode(e.target.value));
 
+// Run after every geometry change, once the model is on screen.
+const ANALYSIS_STEPS = [
+  { label: 'Finding objects…', run: () => analyzeObjects() },
+  { label: 'Checking for holes…', run: () => updateStats() },
+  { label: 'Listing parts…', run: () => renderPartList() },
+];
+
+// A failing analysis step must not hide the model.
+function runStep(step) {
+  try {
+    step.run();
+  } catch (err) {
+    console.error(err);
+    window.__showFatal?.(`${step.label.replace('…', '')} failed: ${err.message}`);
+  }
+}
+
 // Geometry changed: rebuild everything and clear the selection.
 function refresh({ frame = false } = {}) {
   const { mesh } = state;
   state.selection = new Uint8Array(mesh.triangleCount);
   viewer.setMesh(mesh, state.selection, { frame });
-  // The model is on screen now; a failing analysis step must not hide it.
-  for (const step of [analyzeObjects, updateStats, renderPartList]) {
-    try {
-      step();
-    } catch (err) {
-      console.error(err);
-      window.__showFatal?.(`${step.name} failed: ${err.message}`);
-    }
-  }
+  ANALYSIS_STEPS.forEach(runStep);
   updateButtons();
 }
 

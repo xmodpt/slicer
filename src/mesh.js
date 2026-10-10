@@ -275,6 +275,26 @@ export class EditableMesh {
     return { component, count, sizes };
   }
 
+  // Separate shells, largest first: [{ faces: Uint32Array, open: bool }].
+  // Linear time, however many shells there are.
+  parts() {
+    const { component, count, sizes } = this.connectedComponents();
+    const { heEdge, offsets } = this.topology();
+    const open = new Uint8Array(count);
+    for (let h = 0; h < heEdge.length; h++) {
+      const e = heEdge[h];
+      if (offsets[e + 1] - offsets[e] !== 2) open[component[(h / 3) | 0]] = 1;
+    }
+    const start = new Uint32Array(count + 1);
+    for (let c = 0; c < count; c++) start[c + 1] = start[c] + sizes[c];
+    const fill = start.slice(0, count);
+    const faces = new Uint32Array(this.triangleCount);
+    for (let t = 0; t < faces.length; t++) faces[fill[component[t]]++] = t;
+    return [...Array(count).keys()]
+      .sort((a, b) => sizes[b] - sizes[a])
+      .map((c) => ({ faces: faces.subarray(start[c], start[c + 1]), open: !!open[c] }));
+  }
+
   stats() {
     const { loops, openChains } = this.boundaryLoops();
     const { offsets, edgeCount } = this.topology();
@@ -520,20 +540,28 @@ export class EditableMesh {
     return { detached: extra.length / 3, closed };
   }
 
-  // Compact copy of the selected triangles, e.g. for exporting one part.
+  // Compact copy of the selected triangles (mask), e.g. for exporting one part.
   extractFaces(mask) {
+    const faces = [];
+    for (let t = 0; t < this.triangleCount; t++) if (mask[t]) faces.push(t);
+    return this.extractFaceList(faces);
+  }
+
+  // Same, from a list of triangle indices.
+  extractFaceList(faces) {
     const ind = this.indices, p = this.positions;
-    const remap = new Int32Array(this.vertexCount).fill(-1);
+    const remap = new Map();
     const positions = [], indices = [];
-    for (let t = 0; t < this.triangleCount; t++) {
-      if (!mask[t]) continue;
+    for (const t of faces) {
       for (let k = 0; k < 3; k++) {
         const v = ind[t * 3 + k];
-        if (remap[v] < 0) {
-          remap[v] = positions.length / 3;
+        let id = remap.get(v);
+        if (id === undefined) {
+          id = positions.length / 3;
+          remap.set(v, id);
           positions.push(p[v * 3], p[v * 3 + 1], p[v * 3 + 2]);
         }
-        indices.push(remap[v]);
+        indices.push(id);
       }
     }
     return new EditableMesh(new Float32Array(positions), new Uint32Array(indices));
