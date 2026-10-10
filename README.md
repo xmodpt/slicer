@@ -25,9 +25,12 @@ npm run desktop:win      # → desktop/release/STL-Mesh-Editor-<version>-portabl
 npm run desktop          # or just run it as a desktop app
 ```
 
-The GitHub workflow `.github/workflows/windows-app.yml` builds it on every
-version tag (`git tag v1.0.0 && git push origin v1.0.0`) and attaches the
-.exe to a GitHub Release.
+**On GitHub (no Windows PC needed):** the workflow
+`.github/workflows/windows-app.yml` builds the .exe on a Windows machine and
+attaches it to a release. On GitHub: *Releases → Draft a new release* →
+*Choose a tag*: type `v1.0.0` (create it on the branch with this code) →
+*Publish release*. A few minutes later the .exe appears under the release's
+*Assets*. (Pushing a `v*` tag does the same.)
 
 ## Run
 
