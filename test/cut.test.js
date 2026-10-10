@@ -137,6 +137,19 @@ test('dowels: holes on both halves plus a separate dowel part', () => {
   for (const h of halves) assert.ok(volume(h) < 18000);
 });
 
+test('dowels lie on the plate right beside the model', () => {
+  const m = mesh(box(0, 0, 5, 30, 30, 45)); // model bottom at z = 5
+  const r = cutWithPins(m, { normal: [0, 0, 1], offset: 25 }, { type: 'dowel', pins: 2, diameter: 5, length: 6 });
+  const dowels = parts(m).filter((p) => p.bounds().min[0] > 30);
+  assert.equal(dowels.length, r.pins.length);
+  for (const d of dowels) {
+    const b = d.bounds();
+    assert.ok(Math.abs(b.min[2] - 5) < 1e-4, 'resting on the plate');
+    assert.ok(b.min[0] < 30 + 10, 'near the model');
+    assert.ok(b.min[1] >= -1e-6 && b.max[1] <= 30 + 1e-6, 'within the model depth');
+  }
+});
+
 test('analyzeCut reports the plan without changing the mesh', () => {
   const m = mesh(box(0, 0, 0, 100, 4, 40), box(0, 20, 0, 1, 21, 40));
   const tris = m.triangleCount;

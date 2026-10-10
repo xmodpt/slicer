@@ -65,7 +65,9 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
   closed (*⚙ → Close holes when leaving Edit mode*) and the selection grows to
   whole models.
 - **Cut** – the plane cut with pins, holes or dowels. The two halves become
-  separate models (the top one is named “… (top)”), and so does every dowel.
+  separate models (the top one is named “… (top)”). Dowels are made lying on
+  the plate right beside the model, together as one more model (“Dowels”),
+  so they can be moved or exported in one go.
 
 Undo/redo covers grouping too.
 

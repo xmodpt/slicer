@@ -1899,8 +1899,8 @@ function doCut() {
     hasPins: result.pins.some((p) => p.kind === 'pin'),
     longest: Math.max(0, ...result.pins.map((p) => Math.max(p.length, p.holeDepth))),
   };
-  // The halves become separate models (the lower one keeps the name), and so
-  // does every dowel.
+  // The halves become separate models (the lower one keeps the name); the
+  // dowels are one more model.
   {
     const next = Int32Array.from(state.faceGroup);
     const groups = cutGroups();
@@ -1910,10 +1910,11 @@ function doCut() {
       if (!upperOf.has(g)) upperOf.set(g, newGroupId(`${groupName(g)} (top)`));
       for (const t of part.faces) next[t] = upperOf.get(g);
     }
-    groups.dowel.forEach((part, i) => {
-      const id = newGroupId(`Dowel ${i + 1}`);
-      for (const t of part.faces) next[t] = id;
-    });
+    // All dowels together: one model of their own, lying beside the model.
+    if (groups.dowel.length) {
+      const id = newGroupId(groups.dowel.length === 1 ? 'Dowel' : `Dowels (${groups.dowel.length})`);
+      for (const part of groups.dowel) for (const t of part.faces) next[t] = id;
+    }
     state.faceGroup = next;
     renderObjectList();
     updateExportLabels();
@@ -1950,7 +1951,7 @@ function connectorSides(n, conns) {
   const pins = conns.filter((c) => c.kind === 'pin').length, dowels = conns.length - pins;
   return [
     pins ? `Pins stand on the ${lower} half; their holes are in the ${upper} half.` : '',
-    dowels ? `Dowel holes are in both halves; the dowels are separate parts beside the model.` : '',
+    dowels ? `Dowel holes are in both halves; the dowels lie on the plate beside the model as one group.` : '',
   ].filter(Boolean).join(' ');
 }
 

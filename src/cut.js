@@ -290,7 +290,7 @@ function plan(mesh, ctx, opts) {
   const kinds = new Set(result.pins.map((p) => p.kind));
   if (!result.pins.length && type !== 'none') result.notes.push('No connectors fit this cut – try another position, a smaller Ø, or glue the halves.');
   if (kinds.has('pin')) result.notes.push('Print the half with pins standing on its base so the pins point up.');
-  if (kinds.has('dowel')) result.notes.push('Dowels are separate parts: print them lying down for strength.');
+  if (kinds.has('dowel')) result.notes.push('The dowels lie on the plate beside the model as one group (“Dowels”) – print them lying down for strength.');
   return result;
 }
 
@@ -471,12 +471,22 @@ function build(mesh, ctx, result, { segments = 32 } = {}) {
   // Dowels: separate chamfered cylinders lying on the plate beside the model.
   const dowels = ctx.areas.flatMap((a) => a.plan.connectors).filter((c) => c.kind === 'dowel');
   if (dowels.length) {
+    // On the plate (the model's bottom) right beside the model, in rows along
+    // Y that start at the model's front; a new column when a row would run
+    // past the model's back.
     const { min, max } = mesh.bounds();
-    let y = min[1];
+    const gap = 3;
+    let x = max[0] + 5, y = min[1], colWidth = 0;
     for (const d of dowels) {
       const len = 2 * d.h;
       const ch = Math.min(d.r * 0.25, len * 0.1);
-      const x0 = max[0] + 5 + d.r, z = d.r; // axis along X, resting on the plate
+      if (y > min[1] && y + 2 * d.r > Math.max(max[1], min[1] + 4 * d.r + gap)) {
+        x += colWidth + gap;
+        y = min[1];
+        colWidth = 0;
+      }
+      colWidth = Math.max(colWidth, len);
+      const x0 = x, z = min[2] + d.r; // axis along X, resting on the plate
       const ring = (x, r) => {
         const pts = [];
         for (let k = 0; k < segments; k++) {
@@ -499,7 +509,7 @@ function build(mesh, ctx, result, { segments = 32 } = {}) {
         tri(soups.dowel, rings[0][k], rings[0][k1], ends[0], [-1, 0, 0]);
         tri(soups.dowel, rings[3][k], rings[3][k1], ends[1], [1, 0, 0]);
       }
-      y += 2 * d.r + 3;
+      y += 2 * d.r + gap;
     }
   }
 
