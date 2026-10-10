@@ -1284,7 +1284,11 @@ function cutClick(face, p) {
 // ---------------------------------------------------------------------------
 // Keyboard
 
-const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat' };
+const toolKeys = {
+  1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat',
+  // Letters, easier to remember:
+  v: 'orbit', t: 'click', b: 'brush', x: 'box', p: 'part', g: 'region', o: 'object', k: 'block', r: 'rotate', l: 'layflat', c: 'cut',
+};
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
@@ -1342,8 +1346,6 @@ window.addEventListener('keydown', (e) => {
     runSelection('grow');
   } else if (e.key === '-') {
     runSelection('shrink');
-  } else if (e.key.toLowerCase() === 'c') {
-    setTool('cut');
   } else if (e.key === 'Enter' && state.tool === 'cut') {
     doCut();
   } else if (e.key.toLowerCase() === 's') {
@@ -1354,8 +1356,8 @@ window.addEventListener('keydown', (e) => {
     viewer.frame();
   } else if (e.key === '?') {
     showHelp($('help').hidden);
-  } else if (toolKeys[e.key]) {
-    setTool(toolKeys[e.key]);
+  } else if (toolKeys[e.key.toLowerCase()] && !e.shiftKey) {
+    setTool(toolKeys[e.key.toLowerCase()]);
   } else {
     return;
   }

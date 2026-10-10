@@ -25,17 +25,17 @@
       <section>
         <h2>Select tool</h2>
         <div class="tools" id="tools">
-          <button data-tool="object" title="Hover to preview, click to select a whole detected object (7)">Object</button>
-          <button data-tool="orbit" title="Rotate the view with the left mouse button (1)">Orbit</button>
-          <button data-tool="click" title="Click triangles (2)">Triangle</button>
-          <button data-tool="brush" title="Paint over visible triangles (3)">Brush</button>
-          <button data-tool="box" title="Drag a rectangle (4)">Box</button>
-          <button data-tool="block" title="Drag a rectangle to cut the model along its edges and select the block inside (8)">Block</button>
-          <button data-tool="part" title="Click to select a whole connected part (5)">Part</button>
-          <button data-tool="region" title="Click to select a smooth/flat region (6)">Region</button>
-          <button data-tool="rotate" title="Drag left/right to rotate the model on the plate; Shift snaps to 15° (9)">Rotate</button>
-          <button data-tool="layflat" title="Click a face to lay the model flat on it (0)">Lay flat</button>
-          <button data-tool="cut" title="Cut the model with a plane, close both halves and add glue pins (C)">Cut</button>
+          <button data-tool="object" title="Hover to preview, click to select a whole detected object (O)">Object<span class="key">O</span></button>
+          <button data-tool="orbit" title="Rotate the view with the left mouse button (V)">Orbit<span class="key">V</span></button>
+          <button data-tool="click" title="Click triangles (T)">Triangle<span class="key">T</span></button>
+          <button data-tool="brush" title="Paint over visible triangles (B)">Brush<span class="key">B</span></button>
+          <button data-tool="box" title="Drag a rectangle (X)">Box<span class="key">X</span></button>
+          <button data-tool="block" title="Drag a rectangle to cut the model along its edges and select the block inside (K)">Block<span class="key">K</span></button>
+          <button data-tool="part" title="Click to select a whole connected part (P)">Part<span class="key">P</span></button>
+          <button data-tool="region" title="Click to select a smooth/flat region (G)">Region<span class="key">G</span></button>
+          <button data-tool="rotate" title="Drag on the model to rotate it on the plate; Shift snaps to 15° (R)">Rotate<span class="key">R</span></button>
+          <button data-tool="layflat" title="Click a face to lay the model flat on it (L)">Lay flat<span class="key">L</span></button>
+          <button data-tool="cut" title="Cut the model with a plane, close both halves and add glue pins (C)">Cut<span class="key">C</span></button>
         </div>
         <label class="option" data-for="brush">Brush size <input id="brush-size" type="range" min="4" max="120" value="30" /></label>
         <label class="option" data-for="region">Max angle <input id="region-angle" type="range" min="1" max="90" value="20" /> <span id="region-angle-val">20°</span></label>
@@ -171,58 +171,57 @@
           <button id="help-close" title="Close (Esc)">×</button>
         </div>
         <div class="help-body">
-          <h4>View</h4>
-          <dl>
-            <dt>Left-drag</dt><dd>Rotate (on empty space, or with the click tools)</dd>
-            <dt>Right-drag</dt><dd>Rotate</dd>
-            <dt>Middle / Shift+right-drag</dt><dd>Pan</dd>
-            <dt>Wheel</dt><dd>Zoom to the cursor</dd>
-            <dt>Side buttons</dt><dd>Zoom out / in</dd>
-            <dt>Double-click</dt><dd>Set the rotation centre</dd>
-            <dt>Alt + left-drag</dt><dd>Rotate in any tool</dd>
-            <dt>F</dt><dd>Frame the model</dd>
-          </dl>
           <h4>Tools</h4>
-          <dl>
-            <dt>1</dt><dd>Orbit</dd>
-            <dt>2</dt><dd>Triangle</dd>
-            <dt>3</dt><dd>Brush</dd>
-            <dt>4</dt><dd>Box</dd>
-            <dt>5</dt><dd>Part</dd>
-            <dt>6</dt><dd>Region</dd>
-            <dt>7</dt><dd>Object</dd>
-            <dt>8</dt><dd>Block</dd>
-            <dt>9</dt><dd>Rotate</dd>
-            <dt>0</dt><dd>Lay flat</dd>
-            <dt>C</dt><dd>Cut (Enter cuts)</dd>
-          </dl>
-          <h4>Selection</h4>
-          <dl>
-            <dt>Shift + click</dt><dd>Add to selection</dd>
-            <dt>Ctrl + click</dt><dd>Remove from selection</dd>
-            <dt>Ctrl+A</dt><dd>Select all</dd>
-            <dt>Ctrl+I</dt><dd>Invert</dd>
-            <dt>Esc</dt><dd>Select none</dd>
-            <dt>+ / −</dt><dd>Grow / shrink</dd>
-          </dl>
+          <ul class="keys">
+            <li><kbd>O</kbd> = Object select</li>
+            <li><kbd>V</kbd> = View / orbit</li>
+            <li><kbd>T</kbd> = Triangle select</li>
+            <li><kbd>B</kbd> = Brush select</li>
+            <li><kbd>X</kbd> = Box select</li>
+            <li><kbd>K</kbd> = Block cut &amp; select</li>
+            <li><kbd>P</kbd> = Part select</li>
+            <li><kbd>G</kbd> = Region select</li>
+            <li><kbd>R</kbd> = Rotate on plate</li>
+            <li><kbd>L</kbd> = Lay flat</li>
+            <li><kbd>C</kbd> = Cut / plane cut</li>
+            <li><kbd>Enter</kbd> = Do the cut</li>
+          </ul>
           <h4>Edit</h4>
-          <dl>
-            <dt>Delete</dt><dd>Delete selection</dd>
-            <dt>S</dt><dd>Split selection into a part</dd>
-            <dt>H</dt><dd>Close holes</dd>
-            <dt>Ctrl+Z</dt><dd>Undo</dd>
-            <dt>Ctrl+Y</dt><dd>Redo</dd>
-          </dl>
+          <ul class="keys">
+            <li><kbd>Del</kbd> = Delete selection</li>
+            <li><kbd>S</kbd> = Split into part</li>
+            <li><kbd>H</kbd> = Close holes</li>
+            <li><kbd>Ctrl+Z</kbd> = Undo</li>
+            <li><kbd>Ctrl+Y</kbd> = Redo</li>
+          </ul>
+          <h4>Selection</h4>
+          <ul class="keys">
+            <li><kbd>Ctrl+A</kbd> = Select all</li>
+            <li><kbd>Ctrl+I</kbd> = Invert</li>
+            <li><kbd>Esc</kbd> = Select none</li>
+            <li><kbd>+</kbd> / <kbd>−</kbd> = Grow / shrink</li>
+            <li><kbd>Shift</kbd>+click = Add</li>
+            <li><kbd>Ctrl</kbd>+click = Remove</li>
+          </ul>
           <h4>Move &amp; rotate</h4>
-          <dl>
-            <dt>← → ↑ ↓</dt><dd>Move on the plate (follows the view)</dd>
-            <dt>PageUp / PageDown</dt><dd>Move up / down</dd>
-            <dt>Shift + move</dt><dd>10× step</dd>
-            <dt>Home</dt><dd>Centre on the plate</dd>
-            <dt>Q / E</dt><dd>Rotate on the plate (Shift = 2×)</dd>
-          </dl>
-          <p class="muted">With a separate part selected, moving and rotating apply to that part only.</p>
-          <dl><dt>?</dt><dd>Show / hide this box</dd></dl>
+          <ul class="keys">
+            <li><kbd>← → ↑ ↓</kbd> = Move on plate</li>
+            <li><kbd>PgUp</kbd> / <kbd>PgDn</kbd> = Up / down</li>
+            <li><kbd>Shift</kbd>+move = 10× step</li>
+            <li><kbd>Home</kbd> = Centre on plate</li>
+            <li><kbd>Q</kbd> / <kbd>E</kbd> = Turn left / right</li>
+          </ul>
+          <h4>View</h4>
+          <ul class="keys">
+            <li><kbd>F</kbd> = Frame model</li>
+            <li>Left-drag (empty space) = Rotate</li>
+            <li>Right-drag = Rotate</li>
+            <li>Middle-drag = Pan</li>
+            <li>Wheel = Zoom</li>
+            <li>Double-click = Rotation centre</li>
+            <li><kbd>?</kbd> = Show / hide this box</li>
+          </ul>
+          <p class="muted">Number keys 1–9, 0 also pick tools.</p>
         </div>
       </div>
       <div id="toast"></div>

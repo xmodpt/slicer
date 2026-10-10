@@ -49,6 +49,27 @@ is never sent to the browser.
 Each analysis is one request to the Claude Opus 5.5 model with four images –
 typically a few cents. Everything else in the app works without a key.
 
+## Keyboard shortcuts
+
+The *Shortcuts* box under the `?` (top right) lists them all; × closes it and
+`?` brings it back. Each tool button also shows its letter.
+
+| Key | Action | Key | Action |
+|-----|--------|-----|--------|
+| `O` | Object select | `R` | Rotate on plate |
+| `V` | View / orbit | `L` | Lay flat |
+| `T` | Triangle select | `C` | Cut / plane cut (`Enter` cuts) |
+| `B` | Brush select | `S` | Split selection into a part |
+| `X` | Box select | `H` | Close holes |
+| `K` | Block cut & select | `Del` | Delete selection |
+| `P` | Part select | `F` | Frame the model |
+| `G` | Region select | `Q` / `E` | Turn left / right on the plate |
+| arrows | Move on the plate | `PgUp` / `PgDn` | Move up / down |
+| `Home` | Centre on the plate | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+A` / `Ctrl+I` / `Esc` | All / invert / none | `+` / `−` | Grow / shrink selection |
+
+Number keys 1–9 and 0 also pick tools.
+
 ## Workflow
 
 1. **Open** an `.stl` (binary or ASCII) with *Open STL…* or drag it onto the window.
