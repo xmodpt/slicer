@@ -107,6 +107,65 @@ export class EditableMesh {
     this._set(p, this.indices);
   }
 
+  // Rotates the vertices in `vertexMask` (all when null) by `angle` radians
+  // around the line through `pivot` along `axis`.
+  rotate(axis, angle, pivot, vertexMask = null) {
+    const len = Math.hypot(axis[0], axis[1], axis[2]) || 1;
+    const [x, y, z] = axis.map((v) => v / len);
+    const c = Math.cos(angle), s = Math.sin(angle), C = 1 - c;
+    const R = [
+      c + x * x * C, x * y * C - z * s, x * z * C + y * s,
+      y * x * C + z * s, c + y * y * C, y * z * C - x * s,
+      z * x * C - y * s, z * y * C + x * s, c + z * z * C,
+    ];
+    const p = this.positions.slice();
+    for (let v = 0; v < this.vertexCount; v++) {
+      if (vertexMask && !vertexMask[v]) continue;
+      const px = p[v * 3] - pivot[0], py = p[v * 3 + 1] - pivot[1], pz = p[v * 3 + 2] - pivot[2];
+      p[v * 3] = R[0] * px + R[1] * py + R[2] * pz + pivot[0];
+      p[v * 3 + 1] = R[3] * px + R[4] * py + R[5] * pz + pivot[1];
+      p[v * 3 + 2] = R[6] * px + R[7] * py + R[8] * pz + pivot[2];
+    }
+    this._set(p, this.indices);
+  }
+
+  // Area-weighted normal of the flat area around triangle `face` (faces within
+  // `maxAngleDeg` of their neighbours), so a tessellated side gives its true
+  // normal. Returns { normal, faces }.
+  flatAreaNormal(face, maxAngleDeg = 2) {
+    const mask = this.selectSmoothRegion(face, maxAngleDeg, new Uint8Array(this.triangleCount));
+    const p = this.positions, ind = this.indices;
+    const n = [0, 0, 0];
+    for (let t = 0; t < mask.length; t++) {
+      if (!mask[t]) continue;
+      const a = ind[t * 3] * 3, b = ind[t * 3 + 1] * 3, c = ind[t * 3 + 2] * 3;
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const wx = p[c] - p[a], wy = p[c + 1] - p[a + 1], wz = p[c + 2] - p[a + 2];
+      n[0] += uy * wz - uz * wy;
+      n[1] += uz * wx - ux * wz;
+      n[2] += ux * wy - uy * wx;
+    }
+    const l = Math.hypot(n[0], n[1], n[2]) || 1;
+    return { normal: n.map((v) => v / l), faces: mask };
+  }
+
+  // Turns the part made of `faceMask` (all when null) so that `normal` points
+  // straight down, then sets it on the plate (bottom at Z = 0).
+  layFlat(normal, faceMask = null) {
+    const verts = this.verticesOf(faceMask);
+    const com = this.centerOfMass(faceMask);
+    if (!com) return;
+    const dot = -normal[2]; // normal · (0, 0, -1)
+    if (dot < 1 - 1e-9) {
+      // Axis = normal × down; for a face pointing straight up, any horizontal axis.
+      let axis = [-normal[1], normal[0], 0];
+      if (Math.hypot(axis[0], axis[1]) < 1e-9) axis = [1, 0, 0];
+      this.rotate(axis, Math.acos(Math.max(-1, Math.min(1, dot))), com.center, verts);
+    }
+    const after = this.centerOfMass(faceMask);
+    this.translate(0, 0, -after.minZ, verts);
+  }
+
   // Centre of mass of the triangles in `faceMask` (all when null), treating
   // them as a solid; falls back to the surface centroid for open surfaces.
   // Also returns the lowest Z, for "sitting on the plate".

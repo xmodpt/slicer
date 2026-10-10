@@ -676,13 +676,14 @@ function setTool(tool) {
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
   // Click tools: a click selects, a left-drag rotates (as in slicers).
-  const clickTool = ['object', 'click', 'part', 'region'].includes(state.tool);
+  const clickTool = ['object', 'click', 'part', 'region', 'layflat'].includes(state.tool);
   viewer.controls.buttons = {
     0: orbit ? 'rotate' : clickTool ? 'rotate-drag' : null,
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
-  view.style.cursor = orbit ? 'grab' : state.tool === 'brush' ? 'none' : state.tool === 'object' ? 'pointer' : 'crosshair';
+  const cursors = { brush: 'none', object: 'pointer', layflat: 'pointer', rotate: 'ew-resize' };
+  view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
 
@@ -722,6 +723,7 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   drag = { start: p, mode: modeFor(e, state.tool === 'brush' ? 'add' : 'replace'), moved: false };
   if (state.tool === 'brush') brushAt(p, drag.mode);
+  if (state.tool === 'rotate') startSpin(p.x);
 });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -733,6 +735,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (!drag) return;
   if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 3) drag.moved = true;
+  if (state.tool === 'rotate') updateSpin(p.x, e.shiftKey);
   if (state.tool === 'brush') brushAt(p, drag.mode);
   if (state.tool === 'box' || state.tool === 'block') {
     boxRect.classList.toggle('block', state.tool === 'block');
@@ -758,6 +761,10 @@ canvas.addEventListener('pointerup', (e) => {
   drag = null;
   const tool = state.tool;
 
+  if (tool === 'rotate') {
+    endSpin();
+    return;
+  }
   if (tool === 'block') {
     boxRect.style.display = 'none';
     if (moved) cutBlock({ x0: start.x, y0: start.y, x1: p.x, y1: p.y }, mode);
@@ -784,6 +791,10 @@ canvas.addEventListener('pointerup', (e) => {
   }
   if (tool === 'object') {
     selectObjects(rowObjects(state.seg.objectOf[face]), mode);
+    return;
+  }
+  if (tool === 'layflat') {
+    layFlatAt(face);
     return;
   }
   if (tool === 'click') {
@@ -824,10 +835,15 @@ function moveTarget() {
 }
 
 function moveBy(dx, dy, dz) {
-  const mesh = state.mesh;
-  if (!mesh || (!dx && !dy && !dz)) return;
+  if (!state.mesh || (!dx && !dy && !dz)) return;
   const target = moveTarget();
-  // A burst of moves (holding a key or button) is one undo step.
+  transformBurst(() => state.mesh.translate(dx, dy, dz, target.vertices));
+}
+
+// Runs a position-only change (move/rotate). A burst of them – holding a key
+// or button – is one undo step; the triangles and selection stay as they are.
+function transformBurst(change) {
+  const mesh = state.mesh;
   if (!state.moving) {
     state.undo.push(mesh.snapshot());
     if (state.undo.length > 50) state.undo.shift();
@@ -836,10 +852,89 @@ function moveBy(dx, dy, dz) {
   }
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => (state.moving = false), 1200);
-  mesh.translate(dx, dy, dz, target.vertices);
+  change();
   viewer.updatePositions(mesh);
   updatePlacement();
   updateButtons();
+}
+
+let rotateStep = 15;
+
+// Rotates the move target around its centre of mass. Tipping over X or Y
+// puts it back on the plate afterwards.
+function rotateBy(axis, degrees) {
+  if (!state.mesh || !degrees) return;
+  const target = moveTarget();
+  const com = state.mesh.centerOfMass(target.faces);
+  if (!com) return;
+  transformBurst(() => {
+    state.mesh.rotate(axis, (degrees * Math.PI) / 180, com.center, target.vertices);
+    if (axis[2] === 0) {
+      const after = state.mesh.centerOfMass(target.faces);
+      state.mesh.translate(0, 0, -after.minZ, target.vertices);
+    }
+  });
+}
+
+// Lay-flat tool: the clicked face's flat area goes face-down on the plate.
+// Turns the separate piece the face belongs to (the whole model if it is one piece).
+function layFlatAt(face) {
+  const mesh = state.mesh;
+  const piece = mesh.selectConnected([face], new Uint8Array(mesh.triangleCount));
+  const whole = piece.every((v) => v);
+  const { normal } = mesh.flatAreaNormal(face, 2);
+  transformBurst(() => mesh.layFlat(normal, whole ? null : piece));
+  state.moving = false; // each click is its own undo step
+  toast(whole ? 'Laid flat on the selected face' : 'Laid this part flat on the selected face');
+}
+
+// Rotate tool: dragging sideways spins the target around Z (Shift snaps to 15°).
+let spin = null;
+
+function startSpin(x) {
+  const target = moveTarget();
+  const com = state.mesh.centerOfMass(target.faces);
+  if (!com) return;
+  state.moving = false;
+  spin = { x, base: state.mesh.snapshot(), target, pivot: com.center, angle: 0, frame: 0 };
+}
+
+function updateSpin(x, snap) {
+  if (!spin) return;
+  let angle = (x - spin.x) * 0.5;
+  if (snap) angle = Math.round(angle / 15) * 15;
+  spin.angle = angle;
+  if (spin.frame) return;
+  spin.frame = requestAnimationFrame(() => {
+    if (!spin) return;
+    spin.frame = 0;
+    state.mesh.restore(spin.base);
+    state.mesh.rotate([0, 0, 1], (spin.angle * Math.PI) / 180, spin.pivot, spin.target.vertices);
+    viewer.updatePositions(state.mesh);
+    showAngle(spin.angle);
+  });
+}
+
+function endSpin() {
+  if (!spin) return;
+  cancelAnimationFrame(spin.frame);
+  const { base, angle, pivot, target } = spin;
+  spin = null;
+  showAngle(null);
+  state.mesh.restore(base);
+  if (!angle) {
+    viewer.updatePositions(state.mesh);
+    return;
+  }
+  state.moving = false;
+  transformBurst(() => state.mesh.rotate([0, 0, 1], (angle * Math.PI) / 180, pivot, target.vertices));
+  state.moving = false;
+}
+
+function showAngle(angle) {
+  const el = $('angle-readout');
+  el.hidden = angle === null;
+  if (angle !== null) el.textContent = `${angle > 0 ? '+' : ''}${angle.toFixed(1)}°`;
 }
 
 // Centre of mass to X = Y = 0 and/or bottom to Z = 0, for the move target.
@@ -887,6 +982,19 @@ for (const b of document.querySelectorAll('#joystick [data-step]')) {
     for (const o of document.querySelectorAll('#joystick [data-step]')) o.classList.toggle('active', o === b);
   });
 }
+for (const b of document.querySelectorAll('#joystick [data-rotate]')) {
+  b.addEventListener('click', () => {
+    const [x, y, z, sign] = b.dataset.rotate.split(',').map(Number);
+    rotateBy([x, y, z], sign * (z ? rotateStep : 90));
+  });
+}
+for (const b of document.querySelectorAll('#joystick [data-angle]')) {
+  b.addEventListener('click', () => {
+    rotateStep = +b.dataset.angle;
+    for (const o of document.querySelectorAll('#joystick [data-angle]')) o.classList.toggle('active', o === b);
+  });
+}
+$('lay-flat').addEventListener('click', () => setTool('layflat'));
 $('move-center').addEventListener('click', () => placeTarget({ center: true, drop: true }));
 $('move-drop').addEventListener('click', () => placeTarget({ center: false, drop: true }));
 $('help-open').addEventListener('click', () => ($('help').hidden = false));
@@ -895,7 +1003,7 @@ $('help-close').addEventListener('click', () => ($('help').hidden = true));
 // ---------------------------------------------------------------------------
 // Keyboard
 
-const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block' };
+const toolKeys = { 1: 'orbit', 2: 'click', 3: 'brush', 4: 'box', 5: 'part', 6: 'region', 7: 'object', 8: 'block', 9: 'rotate', 0: 'layflat' };
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
@@ -919,6 +1027,11 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.key === 'Home') {
       placeTarget();
+      e.preventDefault();
+      return;
+    }
+    if (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'e') {
+      rotateBy([0, 0, 1], (e.key.toLowerCase() === 'q' ? 1 : -1) * rotateStep * (e.shiftKey ? 2 : 1));
       e.preventDefault();
       return;
     }

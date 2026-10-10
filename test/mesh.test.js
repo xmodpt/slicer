@@ -158,3 +158,37 @@ test('placing on the plate puts the centre of mass at x=y=0 and the bottom at z=
   assert.deepEqual(a.indices, b.indices);
   assert.ok(progress.length > 0 && progress.every((f) => f > 0 && f < 1));
 });
+
+test('rotate and lay flat', () => {
+  // Rotating a cube 90° about Z around its centre maps it onto itself.
+  const m = cube();
+  m.rotate([0, 0, 1], Math.PI / 2, [0.5, 0.5, 0.5]);
+  const { min, max } = m.bounds();
+  for (let k = 0; k < 3; k++) {
+    assert.ok(Math.abs(min[k]) < 1e-6 && Math.abs(max[k] - 1) < 1e-6);
+  }
+  assert.ok(Math.abs(volume(m) - 1) < 1e-6);
+
+  // A tilted 2x1x1 bar: laying it on its long side face ends with that face
+  // on the plate and the bar 1 high.
+  const soup = new Float32Array([...cube().toSoup(), ...cube().toSoup().map((v, i) => (i % 3 === 0 ? v + 1 : v))]);
+  const bar = EditableMesh.fromSoup(soup);
+  bar.rotate([1, 1, 0.3], 0.9, [1, 0.5, 0.5]);
+  // Face 0 is on the original bottom (z = 0) side; its flat area covers both cubes' bottoms.
+  const { normal, faces } = bar.flatAreaNormal(0);
+  assert.equal(faces.reduce((a, b) => a + b, 0), 4);
+  bar.layFlat(normal);
+  const b = bar.bounds();
+  assert.ok(Math.abs(b.min[2]) < 1e-5 && Math.abs(b.max[2] - 1) < 1e-5, `height ${b.max[2] - b.min[2]}`);
+  // The chosen face is now the bottom: all its vertices at z = 0.
+  for (let t = 0; t < bar.triangleCount; t++) {
+    if (!faces[t]) continue;
+    for (let k = 0; k < 3; k++) assert.ok(Math.abs(bar.positions[bar.indices[t * 3 + k] * 3 + 2]) < 1e-5);
+  }
+  assert.ok(Math.abs(volume(bar) - 2) < 1e-5);
+
+  // Laying an upward-facing face flat flips the model over.
+  const up = cube();
+  up.layFlat([0, 0, 1]);
+  assert.ok(Math.abs(up.bounds().min[2]) < 1e-6 && Math.abs(volume(up) - 1) < 1e-6);
+});

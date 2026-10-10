@@ -107,6 +107,13 @@ typically a few cents. Everything else in the app works without a key.
    Z = 0. Keys: arrows move on the plate (following the view), PageUp/PageDown
    up/down, Shift = 10× step, Home = centre on plate. The panel shows the
    position (centre of mass, bottom) and size.
+   **Rotate:** the *Rotate* tool (`9`) spins the model (or selected part) on
+   the plate as you drag left/right – Shift snaps to 15°. The move pad's ⟲ ⟳
+   buttons and `Q` / `E` rotate by the chosen angle (5/15/45/90°); *X 90°* /
+   *Y 90°* tip it over and set it back on the plate.
+   **Lay flat:** the *Lay flat* tool (`0`) – click any face and the model
+   turns so that face (with the flat area around it) rests on the plate.
+   With several separate parts only the clicked one turns.
 6. **Split into parts** (optional): select a region (e.g. with Block) and press
    *Split selection into new part* (`S`). The selection is detached from the
    rest and the cut faces on both sides are closed, so each part is a solid of

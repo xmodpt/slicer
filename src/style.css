@@ -682,3 +682,57 @@ body.dragging #view::after {
 .nav-gizmo button.off {
   opacity: 0.45;
 }
+
+#joystick .rotate-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#joystick .rotate-row > button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+#joystick .rotate-row button[data-rotate^='0,0,1'] {
+  font-size: 16px;
+  padding: 0 10px;
+  flex: none;
+}
+
+#joystick .angles {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+}
+
+#joystick .angles button {
+  flex: none;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+#joystick .angles button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111;
+}
+
+#angle-readout {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(32, 35, 43, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 16px;
+  pointer-events: none;
+}

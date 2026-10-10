@@ -169,7 +169,10 @@ export class Viewer {
     attr.needsUpdate = true;
     this.positions = attr.array;
     this.geometry.computeBoundingSphere();
-    this.setBoundaryEdges(mesh);
+    const lines = this.boundaryLines.geometry.getAttribute('position');
+    lines.array.set(this._boundaryPositions(mesh.positions));
+    lines.needsUpdate = true;
+    this.boundaryLines.geometry.computeBoundingSphere();
     this.pickDirty = true;
     this.requestRender();
   }
@@ -217,18 +220,24 @@ export class Viewer {
       this.group.remove(this.boundaryLines);
       this.boundaryLines.geometry.dispose();
     }
-    const edges = mesh.boundaryEdges();
-    const p = mesh.positions;
+    // The edge list only changes with the triangles; moves reuse it.
+    this.boundaryEdgeList = mesh.boundaryEdges();
+    const g = new THREE.BufferGeometry();
+    const arr = this._boundaryPositions(mesh.positions);
+    g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+    this.boundaryLines = new THREE.LineSegments(g, this.boundaryMaterial);
+    this.boundaryLines.visible = this.showBoundaries;
+    this.group.add(this.boundaryLines);
+  }
+
+  _boundaryPositions(p) {
+    const edges = this.boundaryEdgeList;
     const arr = new Float32Array(edges.length * 6);
     edges.forEach(([a, b], i) => {
       arr.set(p.subarray(a * 3, a * 3 + 3), i * 6);
       arr.set(p.subarray(b * 3, b * 3 + 3), i * 6 + 3);
     });
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    this.boundaryLines = new THREE.LineSegments(g, this.boundaryMaterial);
-    this.boundaryLines.visible = this.showBoundaries;
-    this.group.add(this.boundaryLines);
+    return arr;
   }
 
   // Colour of face t: selection first, then the hovered object, then the
