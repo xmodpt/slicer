@@ -1037,15 +1037,15 @@ function rotateBy(axis, degrees) {
 }
 
 // Lay-flat tool: the clicked face's flat area goes face-down on the plate.
-// Turns the separate piece the face belongs to (the whole model if it is one piece).
+// The whole model turns as one group, unless the clicked face is part of a
+// selection of separate parts – then only those turn.
 function layFlatAt(face) {
   const mesh = state.mesh;
-  const piece = mesh.selectConnected([face], new Uint8Array(mesh.triangleCount));
-  const whole = piece.every((v) => v);
+  const target = countSelected() && state.selection[face] ? moveTarget() : { faces: null, label: 'whole model' };
   const { normal } = mesh.flatAreaNormal(face, 2);
-  transformBurst(() => mesh.layFlat(normal, whole ? null : piece));
+  transformBurst(() => mesh.layFlat(normal, target.faces));
   state.moving = false; // each click is its own undo step
-  toast(whole ? 'Laid flat on the selected face' : 'Laid this part flat on the selected face');
+  toast(target.faces ? 'Laid the selected parts flat on that face' : 'Laid the model flat on that face');
 }
 
 // Rotate tool: dragging sideways spins the target around Z (Shift snaps to 15°).
@@ -1114,7 +1114,7 @@ function updatePlacement() {
   const target = countSelected() ? state.selection : null;
   const com = state.mesh.centerOfMass(target);
   if (!com) return;
-  const { min, max } = state.mesh.bounds();
+  const { min, max } = state.mesh.bounds(target);
   el.innerHTML =
     `<b>${target ? 'Selection' : 'Model'}</b> X ${fmt(com.center[0])} · Y ${fmt(com.center[1])} · Z ${fmt(com.minZ)}` +
     `<br>Size ${fmt(max[0] - min[0])} × ${fmt(max[1] - min[1])} × ${fmt(max[2] - min[2])}`;

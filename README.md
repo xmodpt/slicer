@@ -122,7 +122,8 @@ typically a few cents. Everything else in the app works without a key.
    *Y 90°* tip it over and set it back on the plate.
    **Lay flat:** the *Lay flat* tool (`0`) – click any face and the model
    turns so that face (with the flat area around it) rests on the plate.
-   With several separate parts only the clicked one turns.
+   The whole model turns as one group; to turn only some parts, select them
+   first and click a face on them.
 6. **Split into parts** (optional): select a region (e.g. with Block) and press
    *Split selection into new part* (`S`). The selection is detached from the
    rest and the cut faces on both sides are closed, so each part is a solid of
