@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EditableMesh } from './mesh.js';
 import { parseSTL, writeBinarySTL } from './stl.js';
 import { Viewer } from './viewer.js';
-import { segmentObjects } from './segment.js';
+import { segmentObjects, segmentForKit, cleanLabels } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
@@ -1049,8 +1049,8 @@ function describeObjects(ids) {
 }
 
 // One JPEG view with every listed object labelled "#id" where it is visible.
-function labelledView(dir, ids) {
-  const { pixels, faces, size } = viewer.captureView(dir, 768);
+function labelledView(dir, ids, px = 768) {
+  const { pixels, faces, size } = viewer.captureView(dir, px);
   const wanted = new Set(ids);
   const count = new Map(), sumX = new Map(), sumY = new Map();
   for (let i = 0; i < faces.length; i++) {
@@ -1132,6 +1132,146 @@ async function askAI() {
 }
 
 $('ai-run').addEventListener('click', askAI);
+
+// ---------------------------------------------------------------------------
+// Printable kit: the AI sorts small patches into the parts a creator would
+// print separately (head, hair, jacket, arms, shoes, table…); then each part
+// can be made its own closed model.
+
+const KIT_VIEWS = [
+  ['front', [0, -1, 0.15]],
+  ['back', [0, 1, 0.15]],
+  ['left side', [-1, 0, 0.15]],
+  ['right side', [1, 0, 0.15]],
+  ['front-left, from above', [0.55, -0.75, 0.45]],
+  ['top-down', [0, 0, 1]],
+];
+const KIT_COLORS = [0x6fa8ff, 0x7bd88f, 0xd78fe8, 0xf2d464, 0x5fd3d0, 0xff8fa3, 0xa3a0ff, 0xb7e06a, 0xf2a35f, 0x8fc7ff, 0xe6a4d8, 0xc9b38f, 0x9fe0c9, 0xff7f7f];
+
+async function askAIKit() {
+  if (!state.mesh) return;
+  setMode('edit');
+  const buttons = [$('ai-kit'), $('ai-kit-edit')];
+  for (const b of buttons) b.disabled = true;
+  $('ai-separate').hidden = true;
+  $('ai-summary').textContent = 'Splitting the model into patches and asking the AI which part each one is – this can take a minute or two.';
+  toast('Asking the AI to split the model into printable parts…');
+  try {
+    await stage('Splitting into patches…', null);
+    // Two plain views first, so the AI sees the figure itself (where a sock
+    // ends, a shoe begins…), then the numbered patches.
+    setHoverObjects([]);
+    viewer.setObjects(state.seg.objectOf, null);
+    viewer.setSelection(new Uint8Array(state.mesh.triangleCount));
+    const plain = [
+      ['front, plain (no patches)', [0, -1, 0.15]],
+      ['back, plain (no patches)', [0, 1, 0.15]],
+    ].map(([view, dir]) => ({ view, data: labelledView(dir, [], 1024) }));
+    const seg = segmentForKit(state.mesh, { target: 80 });
+    state.seg = seg;
+    state.ai = null;
+    state.objectColors = seg.objects.map((o, i) => new THREE.Color().setHSL((i * 0.618) % 1, 0.55, 0.6));
+    setHoverObjects([]);
+    viewer.setObjects(seg.objectOf, state.objectColors);
+    viewer.setSelection(new Uint8Array(state.mesh.triangleCount));
+    const ids = seg.objects.map((o) => o.id);
+    const images = [...plain, ...KIT_VIEWS.map(([view, dir]) => ({ view, data: labelledView(dir, ids, 1024) }))];
+    renderObjectList();
+    const res = await fetch('./api/ai/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images, objects: describeObjects(ids), fileName: state.fileName, goal: $('ai-goal').value, mode: 'kit' }),
+    });
+    const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    if (state.seg !== seg) return; // the model changed while waiting
+    fillUnassigned(seg, data.items);
+    state.ai = data;
+    // One colour per part.
+    data.items.forEach((item, k) => item.object_ids.forEach((id) => (state.objectColors[id] = new THREE.Color(KIT_COLORS[k % KIT_COLORS.length]))));
+    applyObjectColors();
+    renderObjectList();
+    $('ai-summary').textContent = `${data.model_description} Parts: ${data.items.map((i) => i.name).join(', ')}.`;
+    $('ai-separate').hidden = false;
+    toast(`Found ${data.items.length} parts – check them in the Objects list, then press “Separate the parts”.`);
+  } catch (err) {
+    applyObjectColors();
+    const msg = 'AI split failed: ' + (err.message || err);
+    $('ai-summary').textContent = msg;
+    toast(msg);
+  } finally {
+    for (const b of buttons) b.disabled = false;
+    $('busy').style.display = 'none';
+  }
+}
+
+// Patches the AI left out join the part they share the longest border with.
+function fillUnassigned(seg, items) {
+  const itemOf = new Int32Array(seg.objects.length).fill(-1);
+  items.forEach((item, k) => item.object_ids.forEach((id) => (itemOf[id] = k)));
+  const mesh = state.mesh;
+  for (let pass = 0; pass < 20 && itemOf.some((x) => x < 0); pass++) {
+    const votes = new Map();
+    for (let t = 0; t < mesh.triangleCount; t++) {
+      const a = seg.objectOf[t];
+      if (itemOf[a] >= 0) continue;
+      mesh.forEachEdgeNeighbour(t, (o) => {
+        const k = itemOf[seg.objectOf[o]];
+        if (k < 0) return;
+        const v = votes.get(a) || new Map();
+        v.set(k, (v.get(k) || 0) + 1);
+        votes.set(a, v);
+      });
+    }
+    if (!votes.size) break;
+    for (const [a, v] of votes) itemOf[a] = [...v.entries()].sort((x, y) => y[1] - x[1])[0][0];
+  }
+  itemOf.forEach((k, id) => {
+    if (k >= 0 && !items[k].object_ids.includes(id)) items[k].object_ids.push(id);
+  });
+}
+
+// Each part becomes its own closed model (one undo step).
+function separateKit() {
+  const { mesh, seg, ai } = state;
+  if (!mesh || !seg || !ai?.items?.length) return;
+  const T0 = mesh.triangleCount;
+  const itemOf = new Int32Array(T0).fill(-1);
+  ai.items.forEach((item, k) => item.object_ids.forEach((id) => seg.facesOf(id).forEach((t) => (itemOf[t] = k))));
+  // Clean borders: no lone triangles, no corners where a part touches itself.
+  cleanLabels(mesh, itemOf);
+  const sizes = ai.items.map((_, k) => itemOf.reduce((n, x) => n + (x === k), 0));
+  const order = ai.items.map((_, k) => k).sort((a, b) => sizes[b] - sizes[a]);
+  const names = ai.items.map((i) => i.name);
+  edit((m) => {
+    for (const k of order.slice(1)) {
+      const mask = new Uint8Array(m.triangleCount);
+      for (let t = 0; t < T0; t++) if (itemOf[t] === k) mask[t] = 1;
+      m.splitOff(mask, { close: true });
+    }
+    return `Separated into ${ai.items.length} parts, each closed where it was cut`;
+  });
+  // Models named after the parts: each piece goes to the part most of its
+  // (original) triangles belong to.
+  const next = new Int32Array(state.mesh.triangleCount);
+  const groupOfItem = new Map();
+  for (const part of state.mesh.parts()) {
+    const count = new Map();
+    for (const t of part.faces) if (t < T0 && itemOf[t] >= 0) count.set(itemOf[t], (count.get(itemOf[t]) || 0) + 1);
+    const k = count.size ? [...count.entries()].sort((a, b) => b[1] - a[1])[0][0] : -1;
+    if (!groupOfItem.has(k)) groupOfItem.set(k, newGroupId(k >= 0 ? names[k] : 'Other'));
+    for (const t of part.faces) next[t] = groupOfItem.get(k);
+  }
+  state.faceGroup = next;
+  $('ai-separate').hidden = true;
+  setMode('normal');
+  renderObjectList();
+  updateExportLabels();
+}
+
+$('ai-kit').addEventListener('click', askAIKit);
+$('ai-kit-edit').addEventListener('click', askAIKit);
+$('ai-separate').addEventListener('click', separateKit);
 
 // ---------------------------------------------------------------------------
 // Body parts of a standing figure (see body.js): shown as named objects in

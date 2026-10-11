@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditableMesh } from '../src/mesh.js';
 import { findBodyParts } from '../src/body.js';
+import { segmentForKit, cleanLabels } from '../src/segment.js';
 
 // A simple standing figure: legs, torso, arms hanging beside it, neck and head.
 function lathe(profile, seg, [ox, oy] = [0, 0]) {
@@ -61,4 +62,34 @@ test('something that is not a figure is not split into body parts', () => {
   for (const q of p) pos.push(...q);
   idx.push(0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4, 2,3,7, 2,7,6, 1,2,6, 1,6,5, 3,0,4, 3,4,7);
   assert.equal(findBodyParts(new EditableMesh(new Float32Array(pos), new Uint32Array(idx))), null);
+});
+
+test('kit patches: about the asked number, and parts made of them separate into closed pieces', () => {
+  const m = human();
+  const seg = segmentForKit(m, { target: 80 });
+  assert.ok(seg.objects.length >= 50 && seg.objects.length <= 110, `${seg.objects.length} patches`);
+  assert.ok(Math.max(...seg.objects.map((o) => o.share)) < 0.06, 'no huge patch');
+  // Parts by position (as the AI would name them), including borders that
+  // zig-zag through the patches of a leg.
+  const P = m.positions, I = m.indices, T0 = m.triangleCount;
+  const partOfPatch = seg.objects.map((o) => {
+    const f = seg.facesOf(o.id);
+    let x = 0, z = 0;
+    for (const t of f) for (let k = 0; k < 3; k++) (x += P[I[t * 3 + k] * 3]), (z += P[I[t * 3 + k] * 3 + 2]);
+    x /= f.length * 3;
+    z /= f.length * 3;
+    return z > 92 ? 0 : Math.abs(x) > 13.5 && z > 38 ? (x < 0 ? 1 : 2) : z < 44 ? (x < 0 ? 3 : 4) : 5;
+  });
+  const labels = new Int32Array(T0);
+  for (let t = 0; t < T0; t++) labels[t] = partOfPatch[seg.objectOf[t]];
+  cleanLabels(m, labels);
+  for (const k of [0, 1, 2, 3, 4]) {
+    const mask = new Uint8Array(m.triangleCount);
+    for (let t = 0; t < T0; t++) if (labels[t] === k) mask[t] = 1;
+    m.splitOff(mask, { close: true });
+  }
+  const s = m.stats();
+  assert.equal(s.holes, 0);
+  assert.equal(s.nonManifoldEdges, 0);
+  assert.ok(s.watertight);
 });

@@ -118,6 +118,27 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
 
 Undo/redo covers grouping too.
 
+## Printable parts (AI)
+
+Edit mode → **Split into printable parts (AI)** (also in the ✨ AI menu)
+splits a figure the way creators split their kits – head, hair, jacket,
+arms, hands, skirt, legs, shoes, a table or base…:
+
+1. The model is cut into ~80 small numbered patches along its folds (big
+   smooth areas are divided further, with borders that prefer creases).
+2. The AI gets two plain views of the figure and six views of the numbered
+   patches, and puts every patch into a part, choosing separations at
+   natural seams – clothing edges, collars, cuffs, where a shoe meets a leg,
+   where the figure touches a prop. Patches it leaves out join the part they
+   border most.
+3. The parts are coloured and named in the Objects tree – check them, then
+   **Separate the parts**: each becomes its own model, closed where it was
+   cut (borders are tidied first so every piece comes out watertight). Undo
+   brings everything back.
+
+Needs the Anthropic API key (see *AI object recognition* above). Without it,
+**Find body parts** below works from the shape alone.
+
 ## Body parts
 
 For a standing figure (head on top, Z up), Edit mode → **Find body parts**

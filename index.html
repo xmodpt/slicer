@@ -118,6 +118,7 @@
             <p class="menu-title">Identify objects with AI</p>
             <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
             <button id="ai-run" class="primary">Ask AI to identify objects</button>
+            <button id="ai-kit" title="Split the model into the parts a creator would print separately – head, hair, clothes, arms, shoes, table…">Split into printable parts</button>
             <p id="ai-summary" class="muted"></p>
             <button id="ai-select-remove" hidden>Select everything the AI suggests removing</button>
           </div>
@@ -212,7 +213,11 @@
               <button id="sel-shrink" title="−">Shrink</button>
             </div>
             <p class="hint">Shift adds, Ctrl removes. Drag on empty space to rotate the view. Group the selected parts into one model with Ctrl+G, ungroup with Ctrl+Shift+G.</p>
-            <button id="body-find" title="For a standing figure: find the head, torso, arms and legs">Find body parts</button>
+            <div class="row">
+              <button id="body-find" title="For a standing figure: find the head, torso, arms and legs (from its shape)">Find body parts</button>
+              <button id="ai-kit-edit" title="Let AI split the model into the parts a creator would print separately – head, hair, clothes, arms, shoes, table… (needs an API key)">Split into printable parts (AI)</button>
+            </div>
+            <button id="ai-separate" class="primary" hidden title="Make each part its own model, closed where it was cut">Separate the parts</button>
           </div>
 
           <div class="card-body" data-card="block">

@@ -37,8 +37,21 @@ You get rendered views of the model where each object has its own colour and a "
 - Use "review" when unsure.
 - Only use object numbers from the table. Be concise and concrete.`;
 
+// "Kit" mode: sort small patches into the parts a figure is printed in.
+const SYSTEM_KIT = `You help prepare a 3D-printable figure or model as a kit of separate parts, the way miniature and statue creators split their models before printing: head, hair, torso/jacket, each arm, hands, skirt or trousers, each leg, shoes or feet, accessories, and props such as a table, chair, rock or base.
+The editor has split the model into many small numbered "patches" along its folds; one real part is made of many patches. You get rendered views where each patch has its own colour and a "#N" label, plus a table of each patch's size and position (Z is up).
+
+Assign EVERY patch to exactly one part:
+- Name parts clearly, e.g. "Head", "Hair", "Jacket", "Left arm (figure's left)", "Right hand", "Skirt", "Left leg", "Right shoe", "Table". Use the figure's own left/right.
+- Group by what the patches show, not by where patch borders happen to be.
+- Choose parts that make sense to print separately and glue back: separations at natural seams – clothing edges, collars, cuffs, where a shoe meets a leg, where the figure touches a prop.
+- Keep small details with the part they sit on (a badge stays with the jacket, a button with the shirt) unless they are clearly separate objects.
+- suggestion: "keep" for every part, "review" only if you are unsure which part some patches belong to.
+- description: what the part is; reason: why this is a good place to separate it. Use only patch numbers from the table.`;
+
 export async function analyzeModel(body, { apiKey } = {}) {
-  const { images = [], objects = [], fileName = 'model.stl', goal = '', units = 'model units' } = body;
+  const { images = [], objects = [], fileName = 'model.stl', goal = '', units = 'model units', mode = 'objects' } = body;
+  const kit = mode === 'kit';
   if (!images.length || !objects.length) throw new HttpError(400, 'Nothing to analyse.');
 
   const table = objects
@@ -57,7 +70,7 @@ export async function analyzeModel(body, { apiKey } = {}) {
   content.push({
     type: 'text',
     text:
-      `File: ${fileName}\nCoordinates are in ${units}, Z is up.\n\nDetected objects:\n${table}\n\n` +
+      `File: ${fileName}\nCoordinates are in ${units}, Z is up.\n\n${kit ? 'Patches' : 'Detected objects'}:\n${table}\n\n` +
       (goal.trim() ? `The user's goal: ${goal.trim()}` : 'The user did not state a goal.'),
   });
 
@@ -71,7 +84,7 @@ export async function analyzeModel(body, { apiKey } = {}) {
       // If a safety classifier declines, the API retries on a fallback model.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      system: SYSTEM,
+      system: kit ? SYSTEM_KIT : SYSTEM,
       messages: [{ role: 'user', content }],
     });
   } catch (err) {
