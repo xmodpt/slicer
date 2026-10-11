@@ -28,14 +28,15 @@ const vec = (v, n, name) => {
   if (!Array.isArray(v) || v.length !== n) throw new Error(`${name} must be a list of ${n} numbers`);
   return v.map((x, i) => num(x, `${name}[${i}]`));
 };
-const points2 = (pts, name) => {
-  if (!Array.isArray(pts) || pts.length < 3) throw new Error(`${name} needs at least 3 points`);
+const points2 = (pts, name, min = 3) => {
+  if (!Array.isArray(pts) || pts.length < min) throw new Error(`${name} needs at least ${min} points`);
   if (pts.length > 5000) throw new Error(`${name} has too many points`);
   return pts.map((p, i) => vec(p, 2, `${name}[${i}]`));
 };
 
 // wasm: the initialised manifold-3d module. Returns a Manifold.
 export function buildShape(wasm, node, { segments = 64 } = {}) {
+  node = normalizeRecipe(node);
   const { Manifold, CrossSection } = wasm;
   let count = 0;
   const made = new Set(); // everything made along the way, freed at the end
@@ -74,10 +75,13 @@ export function buildShape(wasm, node, { segments = 64 } = {}) {
         break;
       }
       case 'revolve': {
-        const pts = points2(a?.profile, `${path}.revolve.profile`).map(([r, z]) => [Math.max(0, r), z]);
-        const cs = keep(CrossSection.ofPolygons([pts], 'Positive'));
-        const cs2 = cs.area() < 0 ? keep(CrossSection.ofPolygons([pts.slice().reverse()], 'Positive')) : cs;
-        if (Math.abs(cs2.area()) < 1e-9) throw new Error(`${path}: the revolve profile has no area`);
+        const pts = points2(a?.profile, `${path}.revolve.profile`, 2).map(([r, z]) => [Math.max(0, r), z]);
+        // Either direction round; an outline that doesn't come back to the
+        // axis is closed along it.
+        if (pts[0][0] > 0) pts.unshift([0, pts[0][1]]);
+        if (pts[pts.length - 1][0] > 0) pts.push([0, pts[pts.length - 1][1]]);
+        const cs2 = keep(CrossSection.ofPolygons([pts], 'NonZero'));
+        if (Math.abs(cs2.area()) < 1e-9) throw new Error(`${path}: the revolve profile has no area (points are [r, z] with r = distance from the axis)`);
         m = cs2.revolve(segments, num(a.degrees, `${path}.revolve.degrees`, { min: 1, max: 360, def: 360 }));
         break;
       }
@@ -158,4 +162,130 @@ export function manifoldToSoup(m) {
     soup[i * 3 + 2] = P[v + 2];
   }
   return soup;
+}
+
+// ---------------------------------------------------------------------------
+// AIs (free ones especially) write the recipe in their own ways: {"type":
+// "cylinder", "radius": 5}, OpenSCAD names, lists instead of unions… Bring
+// the common variants to the recipe's form before building.
+
+const KIND_ALIASES = {
+  box: 'box', cube: 'box', cuboid: 'box', block: 'box', rect: 'box',
+  cylinder: 'cylinder', cyl: 'cylinder', cone: 'cylinder', tube: 'cylinder', disc: 'cylinder', disk: 'cylinder',
+  sphere: 'sphere', ball: 'sphere',
+  torus: 'torus', ring: 'torus', donut: 'torus',
+  revolve: 'revolve', lathe: 'revolve', rotate_extrude: 'revolve', rotateextrude: 'revolve', turn: 'revolve',
+  extrude: 'extrude', linear_extrude: 'extrude', linearextrude: 'extrude', prism: 'extrude',
+  union: 'union', add: 'union', group: 'union', combine: 'union', merge: 'union',
+  difference: 'difference', subtract: 'difference', minus: 'difference', cut: 'difference',
+  intersection: 'intersection', intersect: 'intersection',
+  around: 'around', circular: 'around', polar: 'around', polar_array: 'around', radial: 'around', circular_array: 'around',
+  row: 'row', linear: 'row', linear_array: 'row', array: 'row', repeat: 'row',
+};
+const TRANSFORMS = { translate: 'translate', position: 'translate', pos: 'translate', offset: 'translate', move: 'translate', at: 'translate', rotate: 'rotate', rotation: 'rotate', rot: 'rotate', scale: 'scale' };
+const META = ['name', 'comment', 'label', 'color', 'colour', 'id', 'description'];
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const xyz = (v) => (isObj(v) && ('x' in v || 'y' in v || 'z' in v) ? [v.x || 0, v.y || 0, v.z || 0] : v);
+
+export function normalizeRecipe(node, depth = 0) {
+  if (depth > 60) return node;
+  const down = (c) => normalizeRecipe(c, depth + 1);
+  if (Array.isArray(node)) return node.length === 1 ? down(node[0]) : { union: node.map(down) };
+  if (!isObj(node)) return node;
+  // Wrapped: {"recipe": …}, {"shape": {…}}, {"root": …}
+  for (const w of ['recipe', 'shape', 'root', 'model', 'object', 'geometry']) {
+    if (Object.keys(node).length === 1 && (isObj(node[w]) || Array.isArray(node[w]))) return down(node[w]);
+  }
+  const out = {};
+  let kind = null, params = {};
+  // {"type": "cylinder", …params} / {"shape": "cylinder", "params": {…}}
+  const typeKey = ['type', 'shape', 'op', 'operation', 'kind', 'primitive'].find((k) => typeof node[k] === 'string');
+  if (typeKey) {
+    kind = KIND_ALIASES[node[typeKey].toLowerCase().replace(/[\s-]/g, '_')] || node[typeKey];
+    for (const [k, v] of Object.entries(node)) {
+      if (k === typeKey) continue;
+      if (TRANSFORMS[k]) out[TRANSFORMS[k]] = xyz(v);
+      else if (!META.includes(k)) params[k] = v;
+    }
+    if (isObj(params.params)) params = { ...params, ...params.params };
+    if (isObj(params.args)) params = { ...params, ...params.args };
+  } else {
+    for (const [k, v] of Object.entries(node)) {
+      if (TRANSFORMS[k]) out[TRANSFORMS[k]] = xyz(v);
+      else if (META.includes(k)) continue;
+      else if (KIND_ALIASES[k.toLowerCase()]) {
+        kind = KIND_ALIASES[k.toLowerCase()];
+        params = v;
+      } else if (!kind) {
+        kind = k;
+        params = v;
+      }
+    }
+  }
+  if (!kind) return node;
+  out[kind] = fixParams(kind, params, down);
+  return out;
+}
+
+function fixParams(kind, p, down) {
+  const pick = (o, ...keys) => {
+    for (const k of keys) if (o[k] !== undefined) return o[k];
+    return undefined;
+  };
+  if (['union', 'difference', 'intersection'].includes(kind)) {
+    const list = Array.isArray(p) ? p : isObj(p) ? pick(p, 'children', 'shapes', 'items', 'parts', 'nodes', 'of') : null;
+    if (kind === 'difference' && isObj(p) && !list) {
+      const base = pick(p, 'base', 'from', 'a', 'shape');
+      const minus = pick(p, 'subtract', 'minus', 'cut', 'remove', 'holes', 'tools', 'b');
+      if (base) return [down(base), ...(Array.isArray(minus) ? minus : minus ? [minus] : []).map(down)];
+    }
+    return Array.isArray(list) ? list.map(down) : p;
+  }
+  if (!isObj(p)) {
+    if (kind === 'sphere' && typeof p === 'number') return { r: p };
+    if (kind === 'box' && (typeof p === 'number' || Array.isArray(p))) return { size: p };
+    return p;
+  }
+  const q = { ...p };
+  const half = (v) => (v === undefined ? undefined : Number(v) / 2);
+  switch (kind) {
+    case 'box': {
+      let size = xyz(pick(q, 'size', 'dimensions', 'dims', 'extents'));
+      if (size === undefined) {
+        const w = pick(q, 'x', 'width', 'w', 'length', 'l'), d = pick(q, 'y', 'depth', 'd'), h = pick(q, 'z', 'height', 'h');
+        if (w !== undefined || d !== undefined || h !== undefined) size = [w ?? d ?? h, d ?? w ?? h, h ?? w ?? d];
+      }
+      return { size };
+    }
+    case 'cylinder': {
+      const r = pick(q, 'r', 'radius', 'r1', 'radius1', 'bottomRadius', 'radiusBottom', 'r_bottom', 'rBottom') ?? half(pick(q, 'd', 'diameter', 'd1'));
+      const r2 = pick(q, 'r2', 'radius2', 'topRadius', 'radiusTop', 'r_top', 'rTop') ?? half(pick(q, 'd2', 'topDiameter'));
+      return { r, h: pick(q, 'h', 'height', 'length'), ...(r2 !== undefined ? { r2 } : {}) };
+    }
+    case 'sphere':
+      return { r: pick(q, 'r', 'radius') ?? half(pick(q, 'd', 'diameter')) };
+    case 'torus':
+      return { R: pick(q, 'R', 'majorRadius', 'major_radius', 'radius', 'ringRadius'), r: pick(q, 'r', 'minorRadius', 'minor_radius', 'tube', 'tubeRadius', 'thickness') };
+    case 'revolve':
+      return { profile: xyList(pick(q, 'profile', 'points', 'outline', 'polygon', 'path')), ...(q.degrees !== undefined || q.angle !== undefined ? { degrees: pick(q, 'degrees', 'angle') } : {}) };
+    case 'extrude':
+      return {
+        outline: xyList(pick(q, 'outline', 'points', 'polygon', 'profile', 'shape', 'path')),
+        h: pick(q, 'h', 'height', 'depth', 'length'),
+        ...(q.twist !== undefined ? { twist: q.twist } : {}),
+        ...(pick(q, 'scaleTop', 'scale_top', 'topScale') !== undefined ? { scaleTop: pick(q, 'scaleTop', 'scale_top', 'topScale') } : {}),
+      };
+    case 'around':
+      return { count: pick(q, 'count', 'n', 'number', 'copies', 'times'), shape: down(pick(q, 'shape', 'child', 'item', 'node', 'of', 'children')), ...(q.axis ? { axis: String(q.axis).toLowerCase() } : {}) };
+    case 'row':
+      return { count: pick(q, 'count', 'n', 'number', 'copies', 'times'), step: xyz(pick(q, 'step', 'spacing', 'offset', 'delta')), shape: down(pick(q, 'shape', 'child', 'item', 'node', 'of', 'children')) };
+    default:
+      return q;
+  }
+}
+
+// [[x, y], …] from [{x, y}] or [{r, z}] too.
+function xyList(v) {
+  if (!Array.isArray(v)) return v;
+  return v.map((p) => (isObj(p) ? ('r' in p ? [p.r, p.z ?? p.y ?? 0] : [p.x ?? 0, p.y ?? p.z ?? 0]) : p));
 }

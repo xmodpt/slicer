@@ -102,15 +102,30 @@ Guidelines:
 - When a previous recipe is given, change it as asked and keep the rest.
 
 Answer with ONLY a JSON object (no other text):
-{"name": "short name", "description": "one sentence: what you made and its size", "recipe": <node>}`;
+{"name": "short name", "description": "one sentence: what you made and its size", "recipe": <node>}
+
+Example – "a mug":
+{"name": "Mug", "description": "A mug 80 mm across and 95 mm tall with a handle.",
+ "recipe": {"difference": [
+   {"union": [
+     {"cylinder": {"r": 40, "h": 95}},
+     {"torus": {"R": 22, "r": 5}, "rotate": [90, 0, 0], "translate": [42, 0, 50]}]},
+   {"cylinder": {"r": 36, "h": 95}, "translate": [0, 0, 4]}]}}
+
+Example – "a candle with drips" (revolve profile points are [distance from the axis, height], going round the outline):
+{"name": "Candle", "description": "A candle 24 mm wide and 100 mm tall with a wick and drips.",
+ "recipe": {"union": [
+   {"revolve": {"profile": [[0, 0], [12, 0], [12, 90], [10, 92], [0, 92]]}},
+   {"around": {"count": 7, "shape": {"cylinder": {"r": 1.6, "h": 14, "r2": 0.8}, "translate": [11.6, 0, 76]}}},
+   {"cylinder": {"r": 1, "h": 9, "r2": 0.6}, "translate": [0, 0, 91]}]}}`;
 
 export async function makeShape(body, settings = {}) {
-  const { prompt = '', images = [], previous = null } = body;
+  const { prompt = '', images = [], previous = null, error = '' } = body;
   if (!String(prompt).trim() && !images.length) throw new HttpError(400, 'Describe the object to make.');
   if (images.length > 4) throw new HttpError(400, 'At most 4 reference pictures.');
-  const text =
-    (previous ? `Previous recipe (change it as asked):\n${JSON.stringify(previous)}\n\n` : '') +
-    `Object: ${String(prompt).trim() || 'the object in the picture'}`;
+  const text = error
+    ? `Your recipe below could not be built – the editor said: "${String(error).slice(0, 400)}".\n${JSON.stringify(previous)}\n\nAnswer the whole corrected recipe in the same JSON answer format, using only the node types listed. The object asked for: ${String(prompt).trim() || 'the object in the picture'}`
+    : (previous ? `Previous recipe (change it as asked):\n${JSON.stringify(previous)}\n\n` : '') + `Object: ${String(prompt).trim() || 'the object in the picture'}`;
   const provider = settings.provider || 'anthropic';
   let reply, replacedModel, usedInstead;
   if (provider === 'anthropic') {
@@ -165,7 +180,9 @@ export function parseRecipe(text) {
   } catch {
     throw new HttpError(502, 'The AI answered with broken JSON – try again, or another model.');
   }
-  const recipe = obj.recipe && typeof obj.recipe === 'object' ? obj.recipe : obj.shape && typeof obj.shape === 'object' ? obj.shape : null;
+  // The recipe – or, when the AI answered the shape itself, the whole object.
+  const rest = Object.fromEntries(Object.entries(obj).filter(([k]) => !['name', 'description'].includes(k)));
+  const recipe = obj.recipe && typeof obj.recipe === 'object' ? obj.recipe : obj.shape && typeof obj.shape === 'object' ? obj.shape : Object.keys(rest).length ? rest : null;
   if (!recipe) throw new HttpError(502, 'The AI answer has no shape recipe – try again.');
   return { name: String(obj.name || 'Generated model').slice(0, 80), description: String(obj.description || ''), recipe };
 }

@@ -1327,23 +1327,34 @@ async function makeObject() {
   makeLog(escapeHTML(prompt || '(from the pictures)') + (pics.length ? '<br>' + pics.map((p) => `<img src="${p.url}" alt="" />`).join('') : ''), 'you');
   const wait = makeLog('Designing…', 'muted');
   try {
-    const [res] = await Promise.all([
-      fetch('./api/ai/generate', {
+    const images = pics.map(({ data, mime }) => ({ data, mime }));
+    const ask = async (extra) => {
+      const res = await fetch('./api/ai/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, images: pics.map(({ data, mime }) => ({ data, mime })), previous: refine ? make.last.recipe : null }),
-      }),
-      manifoldModule(),
-    ]);
-    const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-    wait.textContent = 'Building the solid…';
+        body: JSON.stringify({ prompt, images, previous: refine ? make.last.recipe : null, ...extra }),
+      });
+      const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      return data;
+    };
+    let [data] = await Promise.all([ask(), manifoldModule()]);
     const wasm = await manifoldModule();
+    // A design that doesn't build goes back to the AI with the error, twice
+    // at most – free models often slip on the first go.
     let solid;
-    try {
-      solid = buildShape(wasm, data.recipe);
-    } catch (err) {
-      throw new Error(`The AI's design doesn't work (${err.message}) – try again or describe it differently.`);
+    for (let attempt = 0; ; attempt++) {
+      wait.textContent = 'Building the solid…';
+      try {
+        solid = buildShape(wasm, data.recipe);
+        break;
+      } catch (err) {
+        if (attempt >= 2) throw new Error(`The AI's design still doesn't work (${err.message}) – try again, describe it differently, or pick another AI model.`);
+        makeLog(`The design didn't build (${escapeHTML(err.message)}) – asking the AI to fix it…`, 'muted');
+        wait.textContent = 'Fixing the design…';
+        $('make-log').append(wait);
+        data = await ask({ previous: data.recipe, error: err.message });
+      }
     }
     const soup = manifoldToSoup(solid);
     solid.delete();

@@ -65,3 +65,21 @@ test('the recipe is read from the AI answer, even inside text or a code block', 
   assert.deepEqual(r.recipe, { cylinder: { r: 10, h: 80 } });
   assert.throws(() => parseRecipe('no idea'), /did not answer/);
 });
+
+test('recipes written the AI’s own way still build: type fields, OpenSCAD names, clockwise outlines, lists', () => {
+  const variants = [
+    { type: 'cylinder', radius: 10, height: 50 },
+    { shape: 'cube', params: { width: 10, depth: 20, height: 5 }, position: { x: 1, y: 2, z: 0 } },
+    [{ sphere: { radius: 5 } }, { cylinder: { d: 4, height: 10 } }],
+    { recipe: { linear_extrude: { points: [[0, 0], [10, 0], [10, 10], [0, 10]], height: 3 } } },
+    { revolve: { profile: [[0, 0], [0, 90], [11, 90], [12, 0]] } }, // clockwise
+    { rotate_extrude: { points: [{ r: 12, z: 0 }, { r: 11, z: 90 }] } }, // open at the axis
+    { operation: 'difference', children: [{ type: 'box', size: [20, 20, 10] }, { type: 'cylinder', r: 3, h: 30, translate: [0, 0, -5] }] },
+    { difference: { base: { box: { size: 20 } }, subtract: [{ sphere: 6, translate: [0, 0, 20] }] } },
+    { type: 'polar_array', count: 5, shape: { type: 'box', size: [10, 2, 2], translate: [8, 0, 0] } },
+  ];
+  for (const v of variants) {
+    const mesh = solid(v);
+    assert.ok(mesh.stats().watertight && mesh.triangleCount > 4, JSON.stringify(v));
+  }
+});
