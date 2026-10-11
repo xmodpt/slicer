@@ -1320,7 +1320,9 @@ async function openMakePanel() {
 async function makeObject() {
   const prompt = $('make-prompt').value.trim();
   if (make.busy || (!prompt && !make.pics.length)) return;
-  const refine = $('make-refine').checked && make.last;
+  // "a …", "create …", "make a …" asks for something new, whatever the box says.
+  const fresh = /^(create|make|generate|design|build|draw|model)\b(?!\s+(it|this|that|the)\b)|^(a|an)\s/i.test(prompt);
+  const refine = $('make-refine').checked && make.last && !fresh;
   const pics = make.pics.slice();
   make.busy = true;
   $('make-go').disabled = true;

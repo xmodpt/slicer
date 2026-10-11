@@ -83,3 +83,11 @@ test('recipes written the AI’s own way still build: type fields, OpenSCAD name
     assert.ok(mesh.stats().watertight && mesh.triangleCount > 4, JSON.stringify(v));
   }
 });
+
+test('answers from thinking models: JSON in the reasoning field or after some text is found', async () => {
+  const { replyText } = await import('../server/ai.js');
+  const r = { choices: [{ message: { content: '', reasoning: 'Let me think {about it}. Final: {"name": "Tree", "description": "x", "recipe": {"cylinder": {"r": 5, "h": 50}}}' } }] };
+  const parsed = parseRecipe(replyText(r));
+  assert.equal(parsed.name, 'Tree');
+  assert.throws(() => parseRecipe('I cannot do that.'), /It said: “I cannot do that.”/);
+});

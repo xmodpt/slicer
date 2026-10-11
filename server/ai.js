@@ -157,12 +157,27 @@ export async function makeShape(body, settings = {}) {
         { role: 'user', content: images.length ? content : text },
       ],
       response_format: { type: 'json_object' },
+      max_tokens: 12000,
     };
-    const data = await chatWithBackups(settings, req);
-    const r = data?.choices?.[0]?.message?.content;
-    reply = Array.isArray(r) ? r.map((p) => p.text || '').join('') : r || '';
-    replacedModel = data.replacedModel;
-    usedInstead = data.usedInstead;
+    // Free models sometimes answer without the JSON (or think aloud and run
+    // out of room): ask once more, plainly, for just the JSON.
+    for (let attempt = 0; ; attempt++) {
+      const data = await chatWithBackups(settings, req);
+      reply = replyText(data);
+      replacedModel ??= data.replacedModel;
+      usedInstead = data.usedInstead;
+      try {
+        parseRecipe(reply);
+        break;
+      } catch (err) {
+        if (attempt >= 1) throw err;
+        req.messages = [
+          ...req.messages.slice(0, 2),
+          { role: 'assistant', content: reply.slice(0, 4000) || '(no answer)' },
+          { role: 'user', content: 'That was not the JSON answer. Reply with ONLY the JSON object {"name": …, "description": …, "recipe": …} – no explanation, no thinking aloud.' },
+        ];
+      }
+    }
   }
   const answer = parseRecipe(reply);
   if (replacedModel) answer.replacedModel = replacedModel;
@@ -170,15 +185,39 @@ export async function makeShape(body, settings = {}) {
   return answer;
 }
 
-// The JSON object in a reply (it may be wrapped in a code block or text).
+// The answer's text: the content, or – for models that think first and put
+// everything in a reasoning field – the reasoning.
+export function replyText(data) {
+  const msg = data?.choices?.[0]?.message || {};
+  const flat = (r) => (Array.isArray(r) ? r.map((p) => p.text || '').join('') : r || '');
+  const content = flat(msg.content);
+  if (content.includes('{')) return content;
+  const reasoning = flat(msg.reasoning || msg.reasoning_content);
+  return reasoning.includes('{') ? reasoning : content;
+}
+
+const quote = (text) => {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  return t ? ` It said: “${t.slice(0, 140)}${t.length > 140 ? '…' : ''}”` : ' Its answer was empty.';
+};
+
+// The JSON object in a reply (it may be wrapped in a code block or text). With
+// several, the last one that parses and holds a recipe.
 export function parseRecipe(text) {
+  text = String(text || '');
   const start = text.indexOf('{'), end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new HttpError(502, 'The AI did not answer with a shape – try again, or describe it differently.');
+  if (start < 0 || end <= start) throw new HttpError(502, `The AI did not answer with a shape – try again, or pick another model.${quote(text)}`);
   let obj;
   try {
     obj = JSON.parse(text.slice(start, end + 1));
   } catch {
-    throw new HttpError(502, 'The AI answered with broken JSON – try again, or another model.');
+    // Text or thinking around it: try each "{" from the end for a whole object.
+    for (let i = text.lastIndexOf('{"name"'); i >= 0 && !obj; i = text.lastIndexOf('{"name"', i - 1)) {
+      try {
+        obj = JSON.parse(text.slice(i, end + 1));
+      } catch {}
+    }
+    if (!obj) throw new HttpError(502, `The AI answered with broken or cut-off JSON – try again, or pick another model.${quote(text.slice(start))}`);
   }
   // The recipe – or, when the AI answered the shape itself, the whole object.
   const rest = Object.fromEntries(Object.entries(obj).filter(([k]) => !['name', 'description'].includes(k)));
