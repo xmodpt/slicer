@@ -1508,3 +1508,23 @@ svg.logo .r { fill: #008232; stroke: none; }
 .menu-link {
   text-align: left;
 }
+
+/* Cut kinds: flat plane / around a neck */
+.cut-kinds {
+  margin-bottom: 10px;
+}
+
+.cut-kinds button {
+  flex: 1;
+}
+
+.neck-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.neck-list:empty {
+  display: none;
+}

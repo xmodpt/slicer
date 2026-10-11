@@ -109,12 +109,34 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
   Leaving Edit makes everything solid models again: holes left open are
   closed (*⚙ → Close holes when leaving Edit mode*) and the selection grows to
   whole models.
-- **Cut** – the plane cut with pins, holes or dowels. The two halves become
+- **Cut** – *Flat plane*: the plane cut with pins, holes or dowels.
+  *Around a neck*: separates a head (an arm, a handle…) where it is
+  thinnest – see **Neck cut** below. The two halves become
   separate models (the top one is named “… (top)”). Dowels are made lying on
   the plate right beside the model, together as one more model (“Dowels”),
   so they can be moved or exported in one go.
 
 Undo/redo covers grouping too.
+
+## Neck cut
+
+Cut mode → **Around a neck** separates a part where the shape narrows – a
+head from its body, an arm at the shoulder, a handle – along a line that runs
+around the neck and follows the surface, instead of a flat cut through the
+whole model:
+
+1. **Click on the neck** (where it's thinnest), or press **Find necks
+   automatically**: the model is sliced from many directions and the spots
+   where it clearly narrows are listed (e.g. *Neck 1 – Ø 12 mm, 1.3× narrower
+   than around it*).
+2. The cut line is drawn in yellow. **Follow creases** (0–100 %) moves it onto
+   folds in the surface – like where a collar or jaw meets the neck – so the
+   joint hides; 0 % keeps it on the narrowest ring. **Room to wander** sets how
+   far along the neck it may go.
+3. **Cut along the line** (or Enter): the two pieces are separated along the
+   mesh's own edges and both are closed with the *same* surface, so they fit
+   back together seamlessly. The cut-off piece becomes a model of its own;
+   **Pull apart** moves it away to show the joint.
 
 ## Fix model
 
@@ -341,5 +363,6 @@ holes, parts and whether the mesh is watertight.
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.
 - `src/floating.js` – finds parts floating in mid-air.
+- `src/neck.js` – finds necks and cuts around them along the surface.
 - `desktop/` – the Windows app (Electron): `main.cjs` serves the built app
   from a local web server in its own window.

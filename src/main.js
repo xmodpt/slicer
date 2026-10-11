@@ -8,6 +8,7 @@ import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
+import { findNeckAt, findNecks, seamLoop, cutAlongLoop } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -658,6 +659,12 @@ function runStep(step) {
 function refresh({ frame = false } = {}) {
   const { mesh } = state;
   if (state.faceGroup.length !== mesh.triangleCount) state.faceGroup = new Int32Array(mesh.triangleCount);
+  // A chosen neck's cut line refers to the old triangles.
+  state.neck = null;
+  state.neckLoop = null;
+  state.neckLoopPts = null;
+  $('neck-cut').disabled = true;
+  $('neck-info').textContent = '';
   state.hidden = null;
   state.partNames = [];
   state.names = new Map();
@@ -1490,6 +1497,10 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
   if (tool === 'brush' || moved) return;
+  if (tool === 'cut' && state.cutKind === 'neck') {
+    if (viewer.faceAt(p.x, p.y) >= 0) neckClick(p);
+    return;
+  }
   if (tool === 'cut' && manualPlacement() && !e.shiftKey) {
     manualClick(p, e.ctrlKey || e.metaKey);
     return;
@@ -1875,14 +1886,168 @@ function syncCutControls(lo, hi) {
 
 function showCutPlane() {
   const on = state.tool === 'cut' && !!state.mesh;
-  if (!on) {
+  const plane = on && state.cutKind !== 'neck';
+  if (!plane) {
     viewer.setConnectorPreview(null);
-    viewer.setCutOutline(null);
-    viewer.setCutOutline(null);
+    viewer.setCutOutline(on && state.neckLoopPts ? [state.neckLoopPts] : null);
   }
-  viewer.setCutPlane(on ? cut : null);
-  cutGizmo.update(on ? cut : null, on ? viewer.geometry.boundingSphere.radius : 0);
+  viewer.setCutPlane(plane ? cut : null);
+  cutGizmo.update(plane ? cut : null, plane ? viewer.geometry.boundingSphere.radius : 0);
 }
+
+// ---------------------------------------------------------------------------
+// Neck cut: separate a head (an arm, a handle…) around its neck, along a line
+// that follows the surface (see neck.js).
+
+state.cutKind = 'plane';
+
+function setCutKind(kind) {
+  state.cutKind = kind;
+  for (const b of document.querySelectorAll('[data-cutkind]')) b.classList.toggle('active', b.dataset.cutkind === kind);
+  $('cut-neck-ui').hidden = kind !== 'neck';
+  $('cut-plane-ui').hidden = kind === 'neck';
+  $('cut-done').hidden = true;
+  $('status-hint').textContent =
+    kind === 'neck' ? 'Neck cut: click on the neck (where it is thinnest) · Enter cuts along the yellow line' : TOOL_HINTS.cut;
+  if (kind === 'plane') scheduleCutAnalysis();
+  showCutPlane();
+}
+for (const b of document.querySelectorAll('[data-cutkind]')) b.addEventListener('click', () => setCutKind(b.dataset.cutkind));
+
+function neckOptions() {
+  return { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100 };
+}
+
+// The cut line around the chosen neck.
+function updateNeckLine() {
+  const neck = state.neck;
+  state.neckLoop = null;
+  state.neckLoopPts = null;
+  $('neck-cut').disabled = true;
+  if (!neck) {
+    $('neck-info').textContent = '';
+    showCutPlane();
+    return;
+  }
+  const loop = seamLoop(state.mesh, neck, neckOptions());
+  if (!loop) {
+    $('neck-info').textContent = 'No closed line found around this spot – click closer to the thinnest part, or give it more room to wander.';
+    showCutPlane();
+    return;
+  }
+  state.neckLoop = loop;
+  const P = state.mesh.positions;
+  state.neckLoopPts = loop.map((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Cut when it looks right.`;
+  $('neck-cut').disabled = false;
+  showCutPlane();
+}
+
+function chooseNeck(neck) {
+  state.neck = neck;
+  updateNeckLine();
+}
+
+function neckClick(p) {
+  const point = viewer.pointAt(p.x, p.y);
+  if (!point) return;
+  busy(async () => {
+    await stage('Looking for the neck…', null);
+    const neck = findNeckAt(state.mesh, point.toArray());
+    if (!neck) {
+      state.neck = null;
+      updateNeckLine();
+      $('neck-info').textContent = 'No neck here – click on a narrow part that goes all the way round (a neck, a wrist, a handle).';
+      return;
+    }
+    chooseNeck(neck);
+  });
+}
+
+$('neck-find').addEventListener('click', () => {
+  if (!state.mesh) return;
+  busy(async () => {
+    await stage('Searching the model for necks…', null);
+    const necks = findNecks(state.mesh);
+    const list = $('neck-list');
+    list.innerHTML = '';
+    if (!necks.length) {
+      list.textContent = 'No clear necks found – click on one yourself.';
+      return;
+    }
+    necks.forEach((neck, i) => {
+      const b = document.createElement('button');
+      b.className = 'cut-option';
+      b.innerHTML = '<span class="dot"></span><span class="label"></span><span class="what"></span>';
+      b.querySelector('.label').textContent = `Neck ${i + 1}`;
+      b.querySelector('.what').textContent = `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it`;
+      b.addEventListener('click', () => {
+        for (const o of list.children) o.classList.toggle('active', o === b);
+        chooseNeck(neck);
+      });
+      list.append(b);
+    });
+    list.firstChild.click();
+  });
+});
+
+for (const id of ['neck-follow', 'neck-width']) {
+  $(id).addEventListener('input', (e) => ($(id + '-val').textContent = e.target.value + '%'));
+  $(id).addEventListener('change', () => state.neck && updateNeckLine());
+}
+
+function doNeckCut() {
+  const { neck, neckLoop } = state;
+  if (!neck || !neckLoop) return;
+  let result = null;
+  edit((mesh) => {
+    try {
+      result = cutAlongLoop(mesh, neckLoop, neck);
+      return 'Cut along the neck – both pieces are closed';
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  if (!result) return;
+  // The cut-off piece becomes a model of its own.
+  const next = Int32Array.from(state.faceGroup);
+  let id = -1;
+  result.faces.forEach((v, t) => {
+    if (!v) return;
+    if (id < 0) id = newGroupId(`${groupName(next[t])} (cut off)`);
+    next[t] = id;
+  });
+  state.faceGroup = next;
+  state.lastNeckCut = { group: id, normal: neck.normal, center: neck.center, radius: neck.radius };
+  renderObjectList();
+  updateExportLabels();
+  state.neck = null;
+  state.neckLoop = null;
+  state.neckLoopPts = null;
+  $('neck-list').innerHTML = '';
+  $('neck-cut').disabled = true;
+  $('neck-apart').hidden = false;
+  $('neck-info').textContent = 'Done – the cut-off piece is now a separate model. “Pull apart” moves it away so you can see the joint; Export ▾ downloads both.';
+  showCutPlane();
+}
+$('neck-cut').addEventListener('click', doNeckCut);
+
+$('neck-apart').addEventListener('click', () => {
+  const lc = state.lastNeckCut;
+  if (!lc || !state.mesh) return;
+  const mask = new Uint8Array(state.mesh.triangleCount);
+  let any = false;
+  state.faceGroup.forEach((g, t) => g === lc.group && (mask[t] = 1) && (any = true));
+  if (!any) return;
+  // Away from the rest: along the neck axis, towards the piece's side.
+  const b = state.mesh.bounds(mask);
+  const mid = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
+  const side = Math.sign(lc.normal.reduce((sum, x, k) => sum + x * (mid[k] - lc.center[k]), 0)) || 1;
+  const gap = lc.radius * 2;
+  transformBurst(() => state.mesh.translate(...lc.normal.map((x) => x * side * gap), state.mesh.verticesOf(mask)));
+  state.moving = false;
+  viewer.frame();
+});
 
 function cutOptions() {
   return {
@@ -1978,7 +2143,7 @@ function connectorText(conns) {
 let analysisTimer = null;
 function scheduleCutAnalysis() {
   clearTimeout(analysisTimer);
-  if (state.tool !== 'cut' || !state.mesh) return;
+  if (state.tool !== 'cut' || !state.mesh || state.cutKind === 'neck') return;
   $('cut-done').hidden = true;
   setCutStep(1);
   if (state.mesh.triangleCount > 400000) {
@@ -2447,7 +2612,8 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === '-') {
     runSelection('shrink');
   } else if (e.key === 'Enter' && state.tool === 'cut') {
-    doCut();
+    if (state.cutKind === 'neck') doNeckCut();
+    else doCut();
   } else if (e.key.toLowerCase() === 's') {
     splitSelection();
   } else if (e.key.toLowerCase() === 'w') {

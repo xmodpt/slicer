@@ -278,6 +278,25 @@
           </div>
 
           <div class="card-body" data-card="cut">
+            <div class="seg cut-kinds">
+              <button data-cutkind="plane" class="active" title="A flat cut through the whole model, with pins, holes or dowels">Flat plane</button>
+              <button data-cutkind="neck" title="Separate a head, arm, handle… around its neck, following the surface">Around a neck</button>
+            </div>
+
+            <div id="cut-neck-ui" hidden>
+              <p class="hint">Click on the <b>neck</b> – where a head, an arm or a handle is thinnest. The app finds the narrowest ring there and draws the cut line around it in yellow, along the surface's natural creases so the joint hides. Both pieces are closed with the same surface, so they fit back seamlessly.</p>
+              <button id="neck-find" title="Look for necks on the whole model">Find necks automatically</button>
+              <div id="neck-list" class="neck-list"></div>
+              <label class="field" title="0 = the narrowest flat ring; 100 = follow folds and creases in the surface">Follow creases <input id="neck-follow" type="range" min="0" max="100" value="60" /> <span id="neck-follow-val">60%</span></label>
+              <label class="field" title="How far the line may stray from the narrowest ring along the neck">Room to wander <input id="neck-width" type="range" min="30" max="200" value="90" /> <span id="neck-width-val">90%</span></label>
+              <p id="neck-info" class="hint"></p>
+              <div class="row">
+                <button id="neck-cut" class="primary" disabled title="Enter">Cut along the line</button>
+                <button id="neck-apart" hidden title="Move the cut-off piece away so the joint can be seen">Pull apart</button>
+              </div>
+            </div>
+
+            <div id="cut-plane-ui">
             <ol class="guide" id="cut-guide">
               <li data-step="1"><b>Place the plane</b> – drag the orb (arrow slides, rings tilt), pick an axis, or click the model.</li>
               <li data-step="2"><b>Check the connectors</b> – the list below and the preview on the plane show what each cut area gets.</li>
@@ -312,6 +331,7 @@
               <button id="cut-reset" title="Back to a flat Z cut">Reset</button>
               <button id="cut-flip" title="Swap which half gets the pins">Flip</button>
               <button id="cut-go" class="primary" title="Enter">Cut</button>
+            </div>
             </div>
 
             <div id="cut-done" class="done" hidden>
