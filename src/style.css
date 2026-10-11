@@ -17,6 +17,11 @@
   box-sizing: border-box;
 }
 
+/* Hidden means hidden, whatever display a class sets. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -1534,4 +1539,49 @@ svg.logo .r { fill: #008232; stroke: none; }
   background: rgba(0, 174, 66, 0.18);
   border-color: var(--accent);
   color: var(--accent-2);
+}
+
+.modal-box.left {
+  text-align: left;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.modal-box .field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.modal-box .field input,
+.modal-box .field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-status {
+  min-height: 1.4em;
+  font-size: 12px;
+}
+
+.ai-status.ok {
+  color: var(--accent-2);
+}
+
+.ai-status.bad {
+  color: #ff8a8e;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0 0 0 6px;
+  color: var(--accent-2);
+  font-size: 12px;
+  cursor: pointer;
+  height: auto;
+}
+
+.modal-box code {
+  font-size: 11px;
 }

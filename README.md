@@ -74,25 +74,27 @@ other computer – `localhost` only works on the Pi itself.
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
 
-### AI object recognition (optional)
+### AI (optional) – Claude, ChatGPT, Gemini or a local AI
 
-The *Ask AI to identify objects* button sends a few rendered views of the model
-to Claude, which names the detected objects (e.g. "Candle"), groups pieces that
-belong together and suggests what to keep or remove – optionally based on a
-goal you type, like "remove the candles". It runs on the server, so the API key
-is never sent to the browser.
+The AI features (*Ask AI to identify objects*, *Split into printable parts*)
+send a few rendered views of the model to an AI, which names the parts and
+groups the pieces. Choose the AI in **✨ AI → AI settings…**:
 
-1. Get an API key at <https://console.anthropic.com/>.
-2. On the machine running the app (e.g. the Pi), create a file `.env` in this
-   folder containing:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-   (or `export ANTHROPIC_API_KEY=...` before `npm start`). `.env` is ignored by git.
-3. Restart `npm start`.
+| AI | Key from | Notes |
+|---|---|---|
+| **Claude** (Anthropic) – default | console.anthropic.com | model `claude-opus-5-5` |
+| **ChatGPT** (OpenAI) | platform.openai.com/api-keys | any vision model, e.g. `gpt-4o` |
+| **Gemini** (Google) | aistudio.google.com/apikey | e.g. `gemini-2.5-flash` |
+| **Local / other** | – (usually no key) | any OpenAI-compatible server: **Ollama** or **LM Studio** on a PC, with a vision model (e.g. `ollama pull llama3.2-vision`, address `http://<PC>:11434/v1`). Free and offline, but less accurate; a Raspberry Pi is too slow to run one. |
 
-Each analysis is one request to the Claude Opus 5.5 model with four images –
-typically a few cents. Everything else in the app works without a key.
+Paste the key, **Save**, then **Test** – it sends a tiny request and shows
+the answer. Settings and keys are stored on the machine running the app
+(`ai-settings.json` in this folder, readable only by its owner and ignored
+by git; the desktop app keeps it in its data folder) and are never sent to the
+browser. Environment variables still work too (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, also from `.env`). Everything else in the
+app works without any AI. Each analysis is one request with a few images –
+typically a few cents with the paid AIs.
 
 ## Modes
 

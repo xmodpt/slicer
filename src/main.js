@@ -1125,6 +1125,7 @@ async function askAI() {
   } catch (err) {
     applyObjectColors();
     $('ai-summary').textContent = 'AI analysis failed: ' + (err.message || err);
+    aiFailed(String(err.message || err));
   } finally {
     button.disabled = false;
     button.textContent = 'Ask AI to identify objects';
@@ -1132,6 +1133,113 @@ async function askAI() {
 }
 
 $('ai-run').addEventListener('click', askAI);
+
+// ---------------------------------------------------------------------------
+// AI settings: which AI (Claude, ChatGPT, Gemini, local), model, key – saved
+// on the server (server/ai.js), keys never come back to the browser.
+
+let aiSettings = null;
+
+async function loadAISettings() {
+  try {
+    const res = await fetch('./api/ai/settings');
+    if (!res.ok) throw new Error();
+    aiSettings = await res.json();
+  } catch {
+    aiSettings = null;
+  }
+  const current = aiSettings?.providers.find((p) => p.id === aiSettings.provider);
+  $('ai-provider-line').textContent = current
+    ? `Using ${current.label.replace(/ \(.*/, '')} – ${current.model}${current.hasKey || current.id === 'local' ? '' : ' (no key yet)'}`
+    : 'AI support is not available on this server.';
+  return aiSettings;
+}
+
+function fillAISettings(providerId) {
+  if (!aiSettings) return;
+  const sel = $('ai-provider');
+  if (!sel.options.length) for (const p of aiSettings.providers) sel.add(new Option(p.label, p.id));
+  sel.value = providerId || aiSettings.provider;
+  const p = aiSettings.providers.find((x) => x.id === sel.value);
+  $('ai-model').value = p.model;
+  $('ai-model').placeholder = p.defaultModel;
+  $('ai-baseurl-row').hidden = !p.needsBaseUrl;
+  $('ai-baseurl').value = p.baseUrl;
+  $('ai-key').value = '';
+  $('ai-key').placeholder = p.hasKey ? 'saved ✓ – paste a new one to replace it' : p.id === 'local' ? 'usually not needed' : 'paste your key';
+  $('ai-key-help').innerHTML = p.keyUrl ? `Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a> (the AI company bills your account – usually a few cents per analysis).` : '';
+  $('ai-clearkey').disabled = !p.hasKey;
+}
+
+async function showAISettings(message = '') {
+  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open');
+  await loadAISettings();
+  if (!aiSettings) {
+    toast('AI support is not available – run "npm install" on the server and restart it.');
+    return;
+  }
+  $('ai-provider').innerHTML = '';
+  fillAISettings();
+  $('ai-status').textContent = message;
+  $('ai-status').className = 'ai-status' + (message ? ' bad' : '');
+  $('ai-settings').hidden = false;
+}
+
+async function saveAISettings(extra = {}) {
+  const body = { provider: $('ai-provider').value, model: $('ai-model').value, baseUrl: $('ai-baseurl').value, apiKey: $('ai-key').value, ...extra };
+  const res = await fetch('./api/ai/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+  aiSettings = data;
+  fillAISettings(body.provider);
+  await loadAISettings();
+}
+
+const aiStatus = (text, ok) => {
+  $('ai-status').textContent = text;
+  $('ai-status').className = 'ai-status ' + (ok ? 'ok' : 'bad');
+};
+
+$('ai-settings-open').addEventListener('click', (e) => {
+  e.stopPropagation();
+  showAISettings();
+});
+$('ai-settings-close').addEventListener('click', () => ($('ai-settings').hidden = true));
+$('ai-provider').addEventListener('change', () => fillAISettings($('ai-provider').value));
+$('ai-save').addEventListener('click', async () => {
+  try {
+    await saveAISettings();
+    aiStatus('Saved.', true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+$('ai-clearkey').addEventListener('click', async () => {
+  try {
+    await saveAISettings({ clearKey: true, apiKey: '' });
+    aiStatus('Key removed.', true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+$('ai-test').addEventListener('click', async () => {
+  aiStatus('Testing…', true);
+  try {
+    await saveAISettings();
+    const res = await fetch('./api/ai/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    aiStatus(`It works – ${data.model} answered “${(data.reply || '').slice(0, 40)}”.`, true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+loadAISettings();
+
+// An AI request failed: missing or wrong key / model → open the settings.
+function aiFailed(message) {
+  if (/AI settings|API key|model/i.test(message)) showAISettings(message);
+}
 
 // ---------------------------------------------------------------------------
 // Printable kit: the AI sorts small patches into the parts a creator would
@@ -1199,6 +1307,7 @@ async function askAIKit() {
     const msg = 'AI split failed: ' + (err.message || err);
     $('ai-summary').textContent = msg;
     toast(msg);
+    aiFailed(String(err.message || err));
   } finally {
     for (const b of buttons) b.disabled = false;
     $('busy').style.display = 'none';
