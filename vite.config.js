@@ -61,5 +61,9 @@ export default defineConfig(({ mode }) => {
     server: { ...network, port: 5173 },
     preview: { ...network, port: 4173 },
     plugins: [aiPlugin],
+    // manifold-3d (Make with AI) imports node:module only when it runs under
+    // Node; in the browser that branch never runs – an empty stand-in keeps
+    // the build from warning about it.
+    resolve: { alias: { 'node:module': fileURLToPath(new URL('./src/empty-node-module.js', import.meta.url)) } },
   };
 });
