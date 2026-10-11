@@ -164,21 +164,20 @@ function ringAt(mesh, tris, n, d, near, maxDist, eps) {
   return best;
 }
 
-function surfaceNormalNear(mesh, tris, point) {
-  const P = mesh.positions, I = mesh.indices, normals = mesh.faceNormals();
-  let best = -1, bestD = Infinity;
+// The surface's average direction around a point (area-weighted over a
+// patch, so bumps on scanned models don't throw it off).
+function surfaceNormalNear(mesh, tris, point, radius) {
+  const P = mesh.positions, I = mesh.indices;
+  const sum = [0, 0, 0];
   for (const t of tris) {
-    let d = 0;
-    for (let k = 0; k < 3; k++) {
-      const v = I[t * 3 + k] * 3;
-      d += Math.hypot(P[v] - point[0], P[v + 1] - point[1], P[v + 2] - point[2]);
-    }
-    if (d < bestD) {
-      bestD = d;
-      best = t;
-    }
+    const a = vert(P, I[t * 3]), b = vert(P, I[t * 3 + 1]), c = vert(P, I[t * 3 + 2]);
+    const m = [0, 1, 2].map((k) => (a[k] + b[k] + c[k]) / 3);
+    if (Math.hypot(...sub(m, point)) > radius) continue;
+    const nr = cross(sub(b, a), sub(c, a)); // length = 2 × area
+    for (let k = 0; k < 3; k++) sum[k] += nr[k];
   }
-  return best < 0 ? null : [normals[best * 3], normals[best * 3 + 1], normals[best * 3 + 2]];
+  const l = Math.hypot(...sum);
+  return l > 0 ? sum.map((x) => x / l) : null;
 }
 
 function modelSize(mesh) {
@@ -198,7 +197,7 @@ export function findNeckAt(mesh, point, { dirCount = 90, radii = [0.04, 0.08, 0.
     // The surface's direction at the point: a ring around the shape cuts
     // across the surface there (a plane lying almost flat against it would
     // only shave off a tiny cap).
-    const surf = surfaceNormalNear(mesh, tris, point);
+    const surf = surfaceNormalNear(mesh, tris, point, R * 0.3);
     // 1. The tightest ring through the point.
     let best = null;
     for (const n of directions(dirCount)) {
@@ -208,6 +207,7 @@ export function findNeckAt(mesh, point, { dirCount = 90, radii = [0.04, 0.08, 0.
       const c = centroid(ring);
       if (ring.some((p) => Math.hypot(...sub(p, point)) > R * 1.5)) continue;
       const per = perimeter(ring);
+      if (per < R * 0.6) continue; // a ring around a bump, not around the shape
       if (!best || per < best.perimeter) best = { normal: n, offset: dot(n, point), center: c, perimeter: per, ring };
     }
     if (!best) continue;
@@ -227,6 +227,7 @@ export function findNeckAt(mesh, point, { dirCount = 90, radii = [0.04, 0.08, 0.
           const off = sub(c, centre);
           if (Math.hypot(...sub(off, n.map((x) => x * dot(off, n)))) > r0 * 0.8) continue;
           const per = perimeter(ring);
+          if (per < Math.max(R * 0.6, start.perimeter * 0.35)) continue; // a bump, not the shape
           if (per < best.perimeter) best = { normal: n, offset: d, center: c, perimeter: per, ring };
         }
       }
@@ -353,6 +354,25 @@ export function findNecks(mesh, { slices = 48, minRatio = 1.15, maxTriangles = 3
   return found.sort((a, b) => b.ratio - a.ratio);
 }
 
+// Which way along the neck's axis the body is (the bigger side): +1 or −1,
+// 0 when unclear.
+export function bodySide(mesh, neck) {
+  const r = neck.radius;
+  const tris = trianglesNear(mesh, neck.center, r * 10);
+  const eps = modelSize(mesh) * 1e-7;
+  const size = (sideSign) => {
+    let best = 0;
+    for (const k of [2, 3, 4]) {
+      const centre = neck.center.map((x, i) => x + neck.normal[i] * sideSign * r * k);
+      const ring = ringAt(mesh, tris, neck.normal, neck.offset + sideSign * r * k, centre, r * 8, eps);
+      if (ring) best = Math.max(best, perimeter(ring));
+    }
+    return best;
+  };
+  const up = size(1), down = size(-1);
+  return up > down * 1.05 ? 1 : down > up * 1.05 ? -1 : 0;
+}
+
 // --------------------------------------------------------------------------
 // The cut line
 
@@ -409,11 +429,19 @@ class Heap {
 //   painted: per-vertex mask of a line painted by the user – the cut follows it
 //   reach: how far the line may stray along the neck, in mm (instead of width)
 //   through: a vertex the line must pass through (e.g. where the user clicked)
-export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9, painted = null, reach = 0, through = -1 } = {}) {
+//   collar: look for the joint between the neck and clothes – far towards the
+//     body, hardly towards the head, on the neck's own surface
+export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9, painted = null, reach = 0, through = -1, collar = false } = {}) {
   const P = mesh.positions, I = mesh.indices;
   const n = neck.normal, c = neck.center, r = neck.radius;
   const [U, V] = frame(n);
-  const W = reach > 0 ? reach : r * width; // how far the line may stray along the neck
+  let W = reach > 0 ? reach : r * width; // how far the line may stray along the neck
+  let lo = -W, hi = W; // the band along the axis
+  const side = collar ? bodySide(mesh, neck) : 0; // +1 / −1: the body is that way along n
+  if (collar) {
+    W = r * 4.5;
+    [lo, hi] = side > 0 ? [-r * 0.5, W] : side < 0 ? [-W, r * 0.5] : [-W, W];
+  }
   const spread = Math.max(r * 2.5, neck.spread || 0); // how far from the axis
   const nv = mesh.vertexCount;
   // Vertices in the band around the neck.
@@ -421,13 +449,13 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9, painted = null
   const ids = [];
   const theta = [];
   const along = [];
-  const tris = trianglesNear(mesh, c, Math.hypot(W, spread) * 1.2);
+  const tris = trianglesNear(mesh, c, Math.hypot(Math.max(-lo, hi), spread) * 1.2);
   const consider = new Set();
   for (const t of tris) for (let k = 0; k < 3; k++) consider.add(I[t * 3 + k]);
   for (const v of consider) {
     const p = sub(vert(P, v), c);
     const h = dot(p, n);
-    if (Math.abs(h) > W) continue;
+    if (h < lo || h > hi) continue;
     const u = dot(p, U), w = dot(p, V);
     if (Math.hypot(u, w) > spread) continue; // another limb crossing the band
     band[v] = ids.length;
@@ -462,39 +490,65 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9, painted = null
       edges.push([ia, ib, Math.hypot(...sub(vert(P, a), vert(P, b))), angle]);
     }
   }
-  // Scanned models are bumpy: average the creases over each vertex's
-  // neighbourhood (twice), so the line follows real folds – a collar, a jaw
-  // line – rather than every small dent.
-  let crease = new Float64Array(ids.length);
-  const count = new Float64Array(ids.length);
-  for (const [ia, ib, , angle] of edges) {
-    crease[ia] += angle;
-    crease[ib] += angle;
-    count[ia]++;
-    count[ib]++;
+  // Creases measured at a scale of a few millimetres, not edge by edge – on a
+  // bumpy scan every small dent is a "crease": how far the surface around a
+  // point bends inwards (a valley, like the edge of a collar pressing on the
+  // neck) or outwards (a ridge), from smoothed positions and normals.
+  const nb = ids.map(() => []);
+  let edgeSum = 0;
+  for (const [ia, ib, len] of edges) {
+    nb[ia].push(ib);
+    nb[ib].push(ia);
+    edgeSum += len;
   }
-  for (let i = 0; i < ids.length; i++) crease[i] /= count[i] || 1;
-  for (let round = 0; round < 2; round++) {
-    const next = Float64Array.from(crease);
-    const nCount = new Float64Array(ids.length).fill(1);
-    for (const [ia, ib] of edges) {
-      next[ia] += crease[ib];
-      next[ib] += crease[ia];
-      nCount[ia]++;
-      nCount[ib]++;
+  const avgEdge = edgeSum / (edges.length || 1);
+  const scale = r * 0.35;
+  const rounds = Math.max(2, Math.min(80, Math.round((scale / (avgEdge || scale)) ** 2)));
+  let pos = ids.map((v) => vert(P, v));
+  let nor = ids.map(() => [0, 0, 0]);
+  for (const t of tris) {
+    const nrm = [normals[t * 3], normals[t * 3 + 1], normals[t * 3 + 2]];
+    for (let k = 0; k < 3; k++) {
+      const i = band[I[t * 3 + k]];
+      if (i >= 0) for (let a = 0; a < 3; a++) nor[i][a] += nrm[a];
     }
-    for (let i = 0; i < ids.length; i++) next[i] /= nCount[i];
-    crease = next;
   }
-  // Cost: length, kept near the ring, cheaper along creases (and along a
+  nor = nor.map(norm);
+  const origin = pos;
+  for (let round = 0; round < rounds; round++) {
+    const p2 = pos.map((p, i) => {
+      const out = [...p];
+      for (const j of nb[i]) for (let a = 0; a < 3; a++) out[a] += pos[j][a];
+      return out.map((x) => x / (nb[i].length + 1));
+    });
+    const n2 = nor.map((p, i) => {
+      const out = [...p];
+      for (const j of nb[i]) for (let a = 0; a < 3; a++) out[a] += nor[j][a];
+      return norm(out);
+    });
+    pos = p2;
+    nor = n2;
+  }
+  let bend = origin.map((p, i) => dot(sub(pos[i], p), nor[i]));
+  const sorted = bend.map(Math.abs).sort((a, b) => a - b);
+  const typical = sorted[Math.floor(sorted.length * 0.95)] || 1;
+  bend = bend.map((x) => x / typical); // about −1 … 1; positive in valleys
+
+  // Cost: length, kept near the ring, cheaper along valleys (and along a
   // painted line), dearer over ridges.
   const adj = ids.map(() => []);
   for (const [ia, ib, len, rawAngle] of edges) {
     const mid = (along[ia] + along[ib]) / 2;
-    let factor = 1 + 3 * (mid / W) ** 2;
+    let factor = collar ? 1 + 0.15 * (mid / r) ** 2 : 1 + 3 * (mid / W) ** 2;
+    if (collar) {
+      // Stay on the neck's own surface, not the outside of the collar.
+      const pm = sub([0, 1, 2].map((k) => (origin[ia][k] + origin[ib][k]) / 2), c);
+      const rad = Math.hypot(dot(pm, U), dot(pm, V));
+      factor *= 1 + 6 * Math.max(0, rad / r - 1.25) ** 2;
+    }
     if (follow > 0) {
-      const angle = 0.5 * rawAngle + 0.5 * ((crease[ia] + crease[ib]) / 2) * 2.5;
-      factor *= Math.max(0.05, Math.min(6, Math.exp(-follow * 4 * angle)));
+      const valley = (bend[ia] + bend[ib]) / 2 + 0.6 * rawAngle;
+      factor *= Math.max(0.03, Math.min(8, Math.exp(-follow * 3 * valley)));
     }
     if (painted) {
       const pa = painted[ids[ia]], pb = painted[ids[ib]];
@@ -732,6 +786,241 @@ function smallestEigenvector(M) {
   let m = 0;
   for (let i = 1; i < 3; i++) if (a[i][i] < a[m][m]) m = i;
   return norm([v[0][m], v[1][m], v[2][m]]);
+}
+
+// --------------------------------------------------------------------------
+// A clean line
+
+// The cut line made smooth: its height along the neck as a function of the
+// angle around it, kept to a few gentle waves (smooth 0 … 1), as a field
+// f(p) = height(p) − H(angle(p)) whose zero is the smooth line. Returns
+// { field, pts, tris } (pts: the smooth line, for the preview) or null.
+export function smoothLine(mesh, neck, path, { smooth = 0.6 } = {}) {
+  const P = mesh.positions;
+  const n = neck.normal, c = neck.center, r = neck.radius;
+  const [U, V] = frame(n);
+  const BINS = 96;
+  const sum = new Float64Array(BINS), cnt = new Float64Array(BINS);
+  let spread = 0, reach = 0;
+  for (const v of path) {
+    const q = sub(vert(P, v), c);
+    const a = Math.atan2(dot(q, V), dot(q, U));
+    const b = Math.min(BINS - 1, Math.floor(((a + Math.PI) / (2 * Math.PI)) * BINS));
+    sum[b] += dot(q, n);
+    cnt[b]++;
+    spread = Math.max(spread, Math.hypot(dot(q, U), dot(q, V)));
+    reach = Math.max(reach, Math.abs(dot(q, n)));
+  }
+  // Heights per angle; empty bins filled from their neighbours.
+  const h = new Float64Array(BINS).fill(NaN);
+  for (let b = 0; b < BINS; b++) if (cnt[b]) h[b] = sum[b] / cnt[b];
+  const known = [...h.keys()].filter((b) => !Number.isNaN(h[b]));
+  if (known.length < 3) return null;
+  for (let b = 0; b < BINS; b++) {
+    if (!Number.isNaN(h[b])) continue;
+    let before = known[known.length - 1] - BINS, after = known[0] + BINS;
+    for (const k of known) {
+      if (k < b && k > before) before = k;
+      if (k > b && k < after) after = k;
+    }
+    const hb = h[(before + BINS) % BINS], ha = h[after % BINS];
+    h[b] = hb + ((ha - hb) * (b - before)) / (after - before);
+  }
+  // Keep the first few waves round (fewer = smoother).
+  const K = Math.max(1, Math.round(1 + (1 - smooth) * 11));
+  const a0 = h.reduce((s2, x) => s2 + x, 0) / BINS;
+  const coef = [];
+  for (let k = 1; k <= K; k++) {
+    let ca = 0, sa = 0;
+    for (let b = 0; b < BINS; b++) {
+      const t = -Math.PI + ((b + 0.5) * 2 * Math.PI) / BINS;
+      ca += h[b] * Math.cos(k * t);
+      sa += h[b] * Math.sin(k * t);
+    }
+    coef.push([(2 * ca) / BINS, (2 * sa) / BINS]);
+  }
+  const H = (t) => coef.reduce((s2, [ca, sa], i) => s2 + ca * Math.cos((i + 1) * t) + sa * Math.sin((i + 1) * t), a0);
+  const field = (p) => {
+    const q = sub(p, c);
+    return dot(q, n) - H(Math.atan2(dot(q, V), dot(q, U)));
+  };
+  // Only near the neck (not other parts the field's surface would cross).
+  const limit = Math.max(spread * 1.25, r * 1.5);
+  const tris = trianglesNear(mesh, c, Math.hypot(limit, reach + r * 2) * 1.2).filter((t) => {
+    for (let k = 0; k < 3; k++) {
+      const q = sub(vert(P, mesh.indices[t * 3 + k]), c);
+      if (Math.hypot(dot(q, U), dot(q, V)) > limit) return false;
+    }
+    return true;
+  });
+  // The smooth line on the surface: the field's zero, nearest the original.
+  const eps = modelSize(mesh) * 1e-7;
+  const target = path.map((v) => vert(P, v));
+  let best = null, bestScore = Infinity;
+  for (const loop of sliceField(mesh, tris, field, eps)) {
+    if (!loop.closed || loop.pts.length < 6) continue;
+    let score = 0;
+    for (let i = 0; i < target.length; i += Math.max(1, Math.floor(target.length / 40))) score += distToPolyline(target[i], loop.pts);
+    if (score < bestScore) {
+      bestScore = score;
+      best = loop.pts;
+    }
+  }
+  if (!best) return null;
+  return { field, pts: best, tris };
+}
+
+// Like slice() but for any field f(point): its zero inside the triangles.
+function sliceField(mesh, tris, f, eps) {
+  const P = mesh.positions, I = mesh.indices, nv = mesh.vertexCount;
+  const val = new Map();
+  const value = (v) => {
+    let x = val.get(v);
+    if (x === undefined) {
+      x = f(vert(P, v));
+      if (Math.abs(x) < eps) x = eps;
+      val.set(v, x);
+    }
+    return x;
+  };
+  const at = new Map(), ends = new Map(), segs = [];
+  for (const t of tris) {
+    const vs = [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]];
+    const ds = vs.map(value);
+    const keys = [];
+    for (let k = 0; k < 3; k++) {
+      const a = vs[k], b = vs[(k + 1) % 3], da = ds[k], db = ds[(k + 1) % 3];
+      if (da > 0 === db > 0) continue;
+      const key = a < b ? a * nv + b : b * nv + a;
+      if (!at.has(key)) {
+        const s2 = da / (da - db);
+        at.set(key, [0, 1, 2].map((i) => P[a * 3 + i] + (P[b * 3 + i] - P[a * 3 + i]) * s2));
+      }
+      keys.push(key);
+    }
+    if (keys.length !== 2) continue;
+    const id = segs.length;
+    segs.push(keys);
+    for (const key of keys) {
+      if (!ends.has(key)) ends.set(key, []);
+      ends.get(key).push(id);
+    }
+  }
+  const used = new Uint8Array(segs.length);
+  const out = [];
+  for (let s2 = 0; s2 < segs.length; s2++) {
+    if (used[s2]) continue;
+    used[s2] = 1;
+    const [first, second] = segs[s2];
+    const keys = [first, second];
+    let cur = second, closed = false;
+    for (;;) {
+      const nextSeg = (ends.get(cur) || []).find((x) => !used[x]);
+      if (nextSeg === undefined) break;
+      used[nextSeg] = 1;
+      const [a, b] = segs[nextSeg];
+      cur = a === cur ? b : a;
+      if (cur === first) {
+        closed = true;
+        break;
+      }
+      keys.push(cur);
+    }
+    out.push({ pts: keys.map((k) => at.get(k)), keys, closed });
+  }
+  return out;
+}
+
+// Cuts the triangles along a smooth line (from smoothLine) so it becomes a
+// loop of mesh edges, and returns that loop (vertex ids) for cutAlongLoop.
+export function splitAlongLine(mesh, line) {
+  const P = mesh.positions, I = mesh.indices, nv = mesh.vertexCount;
+  const eps = modelSize(mesh) * 1e-7;
+  const val = new Map();
+  const value = (v) => {
+    let x = val.get(v);
+    if (x === undefined) {
+      x = line.field(vert(P, v));
+      if (Math.abs(x) < eps) x = eps;
+      val.set(v, x);
+    }
+    return x;
+  };
+  const positions = Array.from(P);
+  const newVert = new Map(); // edge key -> vertex id
+  const edgeVert = (a, b) => {
+    const key = a < b ? a * nv + b : b * nv + a;
+    let id = newVert.get(key);
+    if (id === undefined) {
+      const da = value(a), db = value(b);
+      const s2 = da / (da - db);
+      id = positions.length / 3;
+      for (let i = 0; i < 3; i++) positions.push(P[a * 3 + i] + (P[b * 3 + i] - P[a * 3 + i]) * s2);
+      newVert.set(key, id);
+    }
+    return id;
+  };
+  const inRegion = new Uint8Array(mesh.triangleCount);
+  for (const t of line.tris) inRegion[t] = 1;
+  const out = [];
+  const segs = []; // [p, q] new-vertex pairs: the line's edges
+  for (let t = 0; t < mesh.triangleCount; t++) {
+    const tv = [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]];
+    if (!inRegion[t]) {
+      out.push(...tv);
+      continue;
+    }
+    const pos = tv.map((v) => value(v) > 0);
+    if (pos[0] === pos[1] && pos[1] === pos[2]) {
+      out.push(...tv);
+      continue;
+    }
+    // The corner alone on its side first, keeping the winding.
+    const lone = pos[0] !== pos[1] && pos[0] !== pos[2] ? 0 : pos[1] !== pos[0] && pos[1] !== pos[2] ? 1 : 2;
+    const a = tv[lone], b = tv[(lone + 1) % 3], c = tv[(lone + 2) % 3];
+    const p = edgeVert(a, b), q = edgeVert(c, a);
+    out.push(a, p, q, p, b, c, p, c, q);
+    segs.push([p, q]);
+  }
+  mesh._set(new Float32Array(positions), new Uint32Array(out));
+  // Chain the line's edges into loops; take the one nearest the preview.
+  const next = new Map();
+  for (const [p, q] of segs) {
+    if (!next.has(p)) next.set(p, []);
+    if (!next.has(q)) next.set(q, []);
+    next.get(p).push(q);
+    next.get(q).push(p);
+  }
+  const seen = new Set();
+  let best = null, bestScore = Infinity;
+  for (const start of next.keys()) {
+    if (seen.has(start)) continue;
+    const loop = [start];
+    seen.add(start);
+    let prev = -1, cur = start, closed = false;
+    for (;;) {
+      const nb = (next.get(cur) || []).filter((x) => x !== prev);
+      const nxt = nb.find((x) => !seen.has(x));
+      if (nxt === undefined) {
+        closed = nb.includes(start) && loop.length > 2;
+        break;
+      }
+      seen.add(nxt);
+      loop.push(nxt);
+      prev = cur;
+      cur = nxt;
+    }
+    if (!closed) continue;
+    const pts = loop.map((v) => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]]);
+    let score = 0;
+    for (let i = 0; i < line.pts.length; i += Math.max(1, Math.floor(line.pts.length / 40))) score += distToPolyline(line.pts[i], pts);
+    if (score < bestScore) {
+      bestScore = score;
+      best = loop;
+    }
+  }
+  if (!best) throw new Error('Could not cut along the smooth line – lower “Smoothness” and try again.');
+  return best;
 }
 
 // --------------------------------------------------------------------------

@@ -297,7 +297,8 @@
               <div id="neck-list" class="neck-list"></div>
               <label class="field" title="0 = the narrowest flat ring; 100 = follow folds and creases in the surface">Follow creases <input id="neck-follow" type="range" min="0" max="100" value="60" /> <span id="neck-follow-val">60%</span></label>
               <label class="field" title="How far the line may stray from the narrowest ring along the neck">Room to wander <input id="neck-width" type="range" min="30" max="400" value="90" /> <span id="neck-width-val">90%</span></label>
-              <button id="neck-collar" title="Follow folds strongly and let the line wander far – e.g. where the neck meets a collar">Snap to collar / crease</button>
+              <label class="field" title="0 = follow the model's edges exactly; higher = a cleaner, smoother line (the triangles are cut along it)">Smoothness <input id="neck-smooth" type="range" min="0" max="100" value="60" /> <span id="neck-smooth-val">60%</span></label>
+              <button id="neck-collar" title="Find the joint between the neck and the clothes: looks towards the body for the fold where the collar meets the neck">Neck meets collar</button>
               <div class="sub-head">Connector</div>
               <label class="field">Pin <select id="neck-pin">
                 <option value="none">None – glue only</option>

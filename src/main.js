@@ -8,7 +8,7 @@ import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
-import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting } from './neck.js';
+import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting, smoothLine, splitAlongLine } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -662,6 +662,7 @@ function refresh({ frame = false } = {}) {
   // A chosen neck's cut line refers to the old triangles.
   state.neck = null;
   state.neckThrough = -1;
+  state.neckLine = null;
   state.neckLoop = null;
   state.neckLoopPts = null;
   $('neck-cut').disabled = true;
@@ -1926,7 +1927,7 @@ function setCutKind(kind) {
 for (const b of document.querySelectorAll('[data-cutkind]')) b.addEventListener('click', () => setCutKind(b.dataset.cutkind));
 
 function neckOptions() {
-  const opts = { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100, through: state.neckThrough ?? -1 };
+  const opts = { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100, through: state.neckThrough ?? -1, collar: !!state.neckCollar };
   // A painted line: follow it (creases count less), as far as it goes.
   if (state.neck?.painted) Object.assign(opts, { painted: state.neck.painted, reach: state.neck.reach, follow: opts.follow * 0.5 });
   return opts;
@@ -1964,13 +1965,18 @@ $('neck-paint-clear').addEventListener('click', () => {
   state.neck = null;
   updateNeckLine();
 });
+// Collar mode: look for the joint between the neck and the clothes.
 $('neck-collar').addEventListener('click', () => {
-  $('neck-follow').value = 100;
-  $('neck-width').value = 300;
-  $('neck-follow-val').textContent = '100%';
-  $('neck-width-val').textContent = '300%';
+  state.neckCollar = !state.neckCollar;
+  $('neck-collar').classList.toggle('active', state.neckCollar);
+  if (state.neckCollar) {
+    $('neck-follow').value = 100;
+    $('neck-follow-val').textContent = '100%';
+  }
   if (state.neck) updateNeckLine();
 });
+$('neck-smooth').addEventListener('input', (e) => ($('neck-smooth-val').textContent = e.target.value + '%'));
+$('neck-smooth').addEventListener('change', () => state.neck && updateNeckLine());
 
 function neckPaintAt(p, erase) {
   const faces = viewer.facesInCircle(p.x, p.y, +$('neck-brush').value / 2);
@@ -1997,6 +2003,7 @@ function updateNeckLine() {
   const neck = state.neck;
   state.neckLoop = null;
   state.neckLoopPts = null;
+  state.neckLine = null;
   $('neck-cut').disabled = true;
   if (!neck) {
     $('neck-info').textContent = '';
@@ -2012,7 +2019,17 @@ function updateNeckLine() {
   state.neckLoop = loop;
   const P = state.mesh.positions;
   state.neckLoopPts = loop.map((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
-  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Not where you want it? Click right on the spot it should pass (e.g. where the neck meets the collar), use “Snap to collar”, or paint it. Then cut.`;
+  // A clean line: smoothed, cut through the triangles along it.
+  state.neckLine = null;
+  const smooth = +$('neck-smooth').value / 100;
+  if (smooth > 0) {
+    const line = smoothLine(state.mesh, neck, loop, { smooth });
+    if (line) {
+      state.neckLine = line;
+      state.neckLoopPts = line.pts;
+    }
+  }
+  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Not where you want it? Click right on the spot it should pass, press “Neck meets collar”, or paint it. Then cut.`;
   $('neck-cut').disabled = false;
   showCutPlane();
 }
@@ -2097,7 +2114,8 @@ function doNeckCut() {
   let result = null;
   edit((mesh) => {
     try {
-      result = cutAlongLoop(mesh, neckLoop, neck, neckConnector());
+      const loop = state.neckLine ? splitAlongLine(mesh, state.neckLine) : neckLoop;
+      result = cutAlongLoop(mesh, loop, neck, neckConnector());
       return 'Cut along the neck – both pieces are closed';
     } catch (err) {
       toast(err.message);
@@ -2119,6 +2137,7 @@ function doNeckCut() {
   state.neck = null;
   state.neckLoop = null;
   state.neckLoopPts = null;
+  state.neckLine = null;
   $('neck-list').innerHTML = '';
   $('neck-cut').disabled = true;
   $('neck-apart').hidden = false;

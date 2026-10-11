@@ -1528,3 +1528,10 @@ svg.logo .r { fill: #008232; stroke: none; }
 .neck-list:empty {
   display: none;
 }
+
+#neck-collar.active,
+#neck-paint.active {
+  background: rgba(0, 174, 66, 0.18);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}

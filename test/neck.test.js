@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditableMesh } from '../src/mesh.js';
-import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting } from '../src/neck.js';
+import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting, smoothLine, splitAlongLine } from '../src/neck.js';
 import { volume, consistentlyClosed } from './helpers.js';
 
 // A closed surface of revolution around Z from a profile [[radius, z], …]
@@ -86,8 +86,9 @@ test('the cut line follows a crease near the neck', () => {
   for (let z = 0; z <= 40; z += 4) p.push([20, z]);
   p.push([9, 40], [9, 46], [6.2, 46]);
   for (let z = 47; z <= 54; z += 1) p.push([6 + 0.02 * (z - 50) ** 2, z]);
-  for (let z = 56; z <= 78; z += 2) p.push([Math.max(1, Math.sqrt(Math.max(0, 15 ** 2 - (z - 66) ** 2))), z]);
-  p.push([0, 80]);
+  // The head rounds off gently from the neck (no second sharp fold).
+  for (let z = 56; z <= 84; z += 2) p.push([Math.max(1, 6.1 + Math.max(0, Math.sqrt(Math.max(0, 14 ** 2 - (z - 70) ** 2)) - 6.1) * Math.min(1, (z - 55) / 6)), z]);
+  p.push([0, 86]);
   const m = lathe(p);
   const neck = findNeckAt(m, [6, 0, 50]);
   assert.ok(neck);
@@ -193,4 +194,67 @@ test('the cut line passes through a clicked point and follows the crease it is o
   assert.ok(loop && loop.includes(pick));
   const z = loop.reduce((s, v) => s + P[v * 3 + 2], 0) / loop.length;
   assert.ok(Math.abs(z - 40.2) < 0.6, `line at z ${z}`);
+});
+
+// A noisy "scanned" bust: a collar whose edge presses into the neck (a shallow,
+// tilted valley), a jaw fold above, and every point jittered.
+function scanBust({ noise = 0.25, seed = 7 } = {}) {
+  const seg = 96, prof = [[0, 0]];
+  for (let z = 0; z <= 30; z += 1) prof.push([22, z]);
+  for (let z = 30.5; z <= 38; z += 0.5) prof.push([22 - (z - 30) * 1.6, z]); // shoulders slope in
+  prof.push([8.6, 38.5], [8.0, 39], [7.4, 39.5], [6.6, 40], [6.2, 40.4]); // collar rolls into the neck (valley at ~40)
+  for (let z = 40.8; z <= 54; z += 0.5) prof.push([6 + 0.01 * (z - 47) ** 2, z]); // neck
+  prof.push([6.6, 54.5], [7.6, 55], [8.8, 55.5]); // jaw fold
+  for (let z = 56; z <= 82; z += 0.75) prof.push([Math.max(0.8, 10 * Math.sqrt(Math.max(0, 1 - ((z - 68) / 14) ** 2)) + 0.8), z]);
+  prof.push([0, 83]);
+  const pos = [], idx = [], ring = [], z0 = [];
+  for (const [r, z] of prof) {
+    if (r === 0) { ring.push([pos.length / 3]); pos.push(0, 0, z); z0.push(z); continue; }
+    const ids = [];
+    for (let i = 0; i < seg; i++) { const a = (2 * Math.PI * i) / seg; ids.push(pos.length / 3); pos.push(r * Math.cos(a), r * Math.sin(a), z); z0.push(z); }
+    ring.push(ids);
+  }
+  for (let j = 0; j + 1 < ring.length; j++) {
+    const A = ring[j], B = ring[j + 1];
+    for (let i = 0; i < seg; i++) { const i1 = (i + 1) % seg;
+      if (A.length === 1) idx.push(A[0], B[i1], B[i]); else if (B.length === 1) idx.push(A[i], A[i1], B[0]); else idx.push(A[i], A[i1], B[i1], A[i], B[i1], B[i]); }
+  }
+  // tilt the collar (front dips), then jitter everything
+  let s = seed;
+  const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 2;
+  for (let v = 0; v < pos.length / 3; v++) {
+    const z = z0[v], x = pos[v * 3];
+    const w = z < 42 ? 1 : z > 48 ? 0 : (48 - z) / 6;
+    pos[v * 3 + 2] = z - 0.35 * x * w;
+    for (let k = 0; k < 3; k++) pos[v * 3 + k] += rnd() * noise;
+  }
+  const m = new EditableMesh(new Float32Array(pos), new Uint32Array(idx));
+  return { m, z0 };
+}
+
+test('scanned bust: collar mode finds the neck–collar joint, and the smooth line cuts cleanly', () => {
+  const { m, z0 } = scanBust();
+  const neck = findNeckAt(m, [6.05, 0, 47]);
+  assert.ok(neck && neck.radius > 4, 'a real neck, not a ring around a bump');
+  const path = seamLoop(m, neck, { collar: true, follow: 1 });
+  const onJoint = path.filter((v) => z0[v] >= 39.4 && z0[v] <= 40.9).length / path.length;
+  assert.ok(onJoint > 0.8, `on the collar joint: ${onJoint}`);
+  // Smooth: far less up-and-down than the zig-zag along the scan's edges.
+  const n = neck.normal;
+  const travel = (pts) => pts.reduce((s, a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    return s + Math.abs((a[0] - b[0]) * n[0] + (a[1] - b[1]) * n[1] + (a[2] - b[2]) * n[2]);
+  }, 0);
+  const P = m.positions;
+  const edgeTravel = travel(path.map((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]));
+  const line = smoothLine(m, neck, path, { smooth: 0.6 });
+  assert.ok(line && travel(line.pts) < edgeTravel * 0.5, `smooth ${line && travel(line.pts)} vs ${edgeTravel}`);
+  const before = volume(m);
+  const loop = splitAlongLine(m, line);
+  const r = cutAlongLoop(m, loop, neck, { shape: 'round', taper: 1, tolerance: 0.2 });
+  assert.ok(r.connector, r.note);
+  const ps = parts(m);
+  assert.equal(ps.length, 2);
+  for (const piece of ps) assert.ok(consistentlyClosed(piece));
+  assert.ok(Math.abs(volume(m) - before) < before * 0.01);
 });

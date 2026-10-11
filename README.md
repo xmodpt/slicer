@@ -128,8 +128,10 @@ whole model. Three ways to place the line:
 - **Click on the neck.** The line goes around it **through the spot you
   click**, following the surface's creases. To cut where the neck meets the
   clothes, click right on that line (click again to move it).
-  **Snap to collar / crease** makes it follow folds strongly and lets it
-  wander far up or down the neck – e.g. along a collar that dips at the front.
+  **Neck meets collar** looks for the joint between the neck and clothes: it
+  finds which side the body is on, searches far that way (hardly towards the
+  head), keeps to the neck's own surface and follows the fold where the
+  collar presses on the neck – also when the collar dips at the front.
 - **Find necks automatically:** the model is sliced from many directions and
   the spots where it clearly narrows are listed (*Neck 1 – Ø 12 mm, 1.3×
   narrower than around it*).
@@ -137,7 +139,11 @@ whole model. Three ways to place the line:
   turns the view, Ctrl+drag erases). The line follows the painting and fills
   gaps; paint all the way round, or just one side and let it guess the rest.
 
-*Follow creases* (0–100 %) and *Room to wander* fine-tune the line.
+*Follow creases* (0–100 %) and *Room to wander* fine-tune the line. Creases
+are judged over a few millimetres, so the bumps of a scanned model don't pull
+the line around. **Smoothness** turns the line into a clean curve (0 % =
+along the model's own edges): the triangles are cut along it, so the cut edge
+is smooth instead of zig-zagging along the scan's triangles.
 
 **Connector:** a **round** or **square pin** on the main piece and a matching
 hole in the cut-off piece, in the middle of the cut. The pin's tip is *1 %*
