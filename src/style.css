@@ -1585,3 +1585,6 @@ svg.logo .r { fill: #008232; stroke: none; }
 .modal-box code {
   font-size: 11px;
 }
+
+.kit-ui { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+.kit-ui .check.sub { margin-left: 22px; opacity: 0.85; }

@@ -243,6 +243,23 @@
               <button id="body-find" title="For a standing figure: find the head, torso, arms and legs (from its shape)">Find body parts</button>
               <button id="ai-kit-edit" title="Let AI split the model into the parts a creator would print separately – head, hair, clothes, arms, shoes, table… (needs an API key)">Split into printable parts (AI)</button>
             </div>
+            <button id="kit-plan" title="Cut a standing figure into printable parts at its joints – head, legs, base… – each closed with a pin and hole">Split figure into parts</button>
+            <div id="kit-ui" class="kit-ui" hidden>
+              <div class="sub-head">Cut off</div>
+              <label class="check"><input id="kit-head" type="checkbox" checked /> Head</label>
+              <label class="check sub" title="Cut where the neck meets the clothes instead of at the thinnest part of the neck"><input id="kit-collar" type="checkbox" checked /> where the neck meets the collar</label>
+              <label class="check"><input id="kit-legs" type="checkbox" checked /> Legs (at the hips)</label>
+              <label class="check"><input id="kit-feet" type="checkbox" /> Feet / shoes (at the ankles)</label>
+              <label class="check"><input id="kit-base" type="checkbox" checked /> Base (flat cut)</label>
+              <label class="check" title="Off: the arms stay on the torso – best when the hands touch the body (in pockets, on the hips)"><input id="kit-arms" type="checkbox" /> Arms (at the shoulders)</label>
+              <label class="field">Pins <select id="kit-pin">
+                <option value="round" selected>Round, tapered</option>
+                <option value="square">Square, tapered</option>
+                <option value="none">None – glue only</option>
+              </select></label>
+              <p id="kit-info" class="hint"></p>
+              <button id="kit-cut" class="primary">Cut into parts</button>
+            </div>
             <button id="ai-separate" class="primary" hidden title="Make each part its own model, closed where it was cut">Separate the parts</button>
           </div>
 

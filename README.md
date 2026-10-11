@@ -157,6 +157,27 @@ The joints – **neck, shoulders, hips** – are listed first under Cut →
 Around a neck → *Find necks automatically*, so any part can be cut off there
 with a clean line and a pin.
 
+A base the figure stands on is found too (a wide ring at the bottom whose
+area drops sharply where the feet stand on it), and the ankles when the legs
+get clearly narrower above the feet.
+
+## Split a figure into printable parts
+
+Edit mode → **Split figure into parts** cuts a standing figure at its joints,
+like a creator splits a figure for printing – no AI needed:
+
+- tick what comes off: **Head** (by default where the neck meets the collar),
+  **Legs** at the hips, **Feet** at the ankles, the **Base** (a flat cut just
+  above it) and **Arms** at the shoulders. The preview colours the parts;
+  what isn't cut off stays with the torso. Arms are off by default – keep
+  them on the torso when the hands touch the body (in pockets, on the hips);
+- **Cut into parts** cuts along a smooth line around each joint (see Neck
+  cut), closes both sides and adds a tapered round or square pin with a
+  matching hole (tip narrower and hole wider as set under Cut → Around a
+  neck). The base gets pins standing up into the feet;
+- every part becomes its own named model. A part joined to the rest
+  somewhere else too (a hand in a pocket) is left on, with a note.
+
 ## Neck cut
 
 Cut mode → **Around a neck** separates a part where the shape narrows – a

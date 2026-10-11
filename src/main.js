@@ -9,6 +9,7 @@ import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { findBodyParts } from './body.js';
+import { kitCuts, kitPreview, splitFigure } from './kit.js';
 import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting, smoothLine, splitAlongLine } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
@@ -1440,6 +1441,77 @@ $('body-find').addEventListener('click', () => {
     toast(`Found ${body.parts.map((p) => p.name.replace(/ \(.*\)/, '')).join(', ')} – click one in the Objects list to select it. Cut ▸ Around a neck cuts them off at the joints.`);
   });
 });
+// ---------------------------------------------------------------------------
+// Split a figure into printable parts at its joints (see kit.js): choose what
+// comes off, see it in colour, then cut.
+
+const KIT_KEYS = ['head', 'legs', 'feet', 'base', 'arms'];
+function kitChoices() {
+  return Object.fromEntries(KIT_KEYS.map((k) => [k, $('kit-' + k).checked && !$('kit-' + k).disabled]));
+}
+
+function showKitPlan() {
+  const body = state.kitBody;
+  if (!body) return;
+  const cuts = kitCuts(body, kitChoices());
+  const parts = kitPreview(body, cuts).filter((p) => p.faces.length);
+  showBodyParts({ parts: parts.map((p, i) => ({ ...p, id: i })), joints: body.joints });
+  $('kit-info').textContent = cuts.length
+    ? `${parts.length} parts: ${parts.map((p) => p.name.replace(/ \(.*\)/, '')).join(', ')} – each cut is closed on both sides${$('kit-pin').value === 'none' ? '' : ', with a pin and a matching hole'}.`
+    : 'Tick at least one part to cut off.';
+  $('kit-cut').disabled = !cuts.length;
+}
+
+$('kit-plan').addEventListener('click', () => {
+  if (!state.mesh) return;
+  busy(async () => {
+    await stage('Finding the head, legs, base…', null);
+    const body = analyseBody();
+    if (!body) {
+      $('kit-ui').hidden = true;
+      toast('This doesn’t look like a standing figure (head on top, Z up) – stand it up on the plate and try again.');
+      return;
+    }
+    state.kitBody = body;
+    $('kit-base').disabled = !body.base;
+    $('kit-base').parentElement.title = body.base ? '' : 'No base found under the feet';
+    $('kit-feet').disabled = !body.joints.some((j) => j.name.startsWith('Ankle'));
+    $('kit-feet').parentElement.title = $('kit-feet').disabled ? 'No ankles found (the legs don’t get narrower above the feet)' : '';
+    $('kit-ui').hidden = false;
+    showKitPlan();
+  });
+});
+for (const k of KIT_KEYS) $('kit-' + k).addEventListener('change', showKitPlan);
+$('kit-pin').addEventListener('change', showKitPlan);
+
+$('kit-cut').addEventListener('click', () => {
+  const body = state.kitBody;
+  if (!state.mesh || !body) return;
+  const cuts = kitCuts(body, kitChoices());
+  if (!cuts.length) return;
+  busy(async () => {
+    await stage(`Cutting ${cuts.length} joint${cuts.length > 1 ? 's' : ''} – this can take a little while…`, null);
+    const shape = $('kit-pin').value;
+    const connector = shape === 'none' ? null : { shape, size: 0, length: 0, taper: Math.max(0, +$('neck-taper').value || 1), tolerance: Math.max(0, +$('neck-tol').value || 0.2) };
+    let result = null;
+    edit((mesh) => {
+      result = splitFigure(mesh, cuts, { connector, collar: $('kit-collar').checked, smooth: +$('neck-smooth').value / 100 });
+      return result.done.length ? `Cut off ${result.done.map((n) => n.replace(/ \(.*\)/, '')).join(', ')}` : '';
+    });
+    if (!result) return;
+    // One model per piece, named after it.
+    const ids = result.names.map((n) => newGroupId(n));
+    state.faceGroup = Int32Array.from(result.labels, (l) => ids[l]);
+    state.kitBody = null;
+    $('kit-ui').hidden = true;
+    setMode('normal');
+    renderObjectList();
+    updateExportLabels();
+    const pins = connector ? ` Each joint has a ${shape} pin (tip ${fmtMM(connector.taper)} % narrower) and a hole ${fmtMM(connector.tolerance)} mm wider.` : '';
+    toast(`${result.done.length ? `Split into ${result.names.length} parts.` : 'Nothing was cut.'}${pins} ${result.notes.join(' ')}`.trim());
+  });
+});
+
 $('ai-goal').addEventListener('keydown', (e) => e.key === 'Enter' && askAI());
 $('ai-select-remove').addEventListener('click', () => {
   const ids = (state.ai?.items || []).filter((i) => i.suggestion === 'remove').flatMap((i) => i.object_ids);
@@ -3093,7 +3165,7 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  toastTimer = setTimeout(() => el.classList.remove('show'), Math.max(3000, String(msg).length * 45));
 }
 
 setMode('normal');

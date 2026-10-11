@@ -108,7 +108,43 @@ function sliceLevel(mesh, tris, z) {
   return out;
 }
 
-const PART_NAMES = ['Head', 'Torso', 'Arm', 'Arm', 'Leg', 'Leg'];
+const PART_NAMES = ['Head', 'Torso', 'Arm', 'Arm', 'Leg', 'Leg', 'Base'];
+
+function ringsBox(rings) {
+  const b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings) for (const [x, y] of r.pts) (b[0] = Math.min(b[0], x)), (b[1] = Math.min(b[1], y)), (b[2] = Math.max(b[2], x)), (b[3] = Math.max(b[3], y));
+  return (b[2] - b[0]) * (b[3] - b[1]);
+}
+
+// The level where a base ends: { k } (the first level above it) or null.
+function findBase(L, levels) {
+  const k0 = L.findIndex((l) => l.length);
+  if (k0 < 0 || L[k0].length !== 1) return null;
+  const area0 = L[k0][0].area, box0 = ringsBox(L[k0]);
+  for (let k = k0 + 1; k < k0 + levels * 0.15 && k < levels; k++) {
+    const area = L[k].reduce((s, r) => s + r.area, 0);
+    if (area > area0 * 0.5) continue;
+    // Above it: smaller than the base all round, and standing on it.
+    if (!L[k].length || ringsBox(L[k]) > box0 * 0.6) return null;
+    if (!L[k].every((r) => pointInPolygon(r.c, L[k0][0].pts))) return null;
+    return { k };
+  }
+  return null;
+}
+
+// The ankle: the narrowest ring in the lower part of a leg, clearly narrower
+// than the foot below it.
+function ankleRing(rings) {
+  // rings: top first
+  const n = rings.length;
+  if (n < 10) return null;
+  let best = null;
+  for (let i = Math.floor(n * 0.6); i < n - Math.max(2, Math.floor(n * 0.08)); i++) if (!best || rings[i].per < best.per) best = rings[i];
+  if (!best) return null;
+  const below = rings.filter((r) => r.k < best.k);
+  const foot = Math.max(...below.map((r) => r.per));
+  return best.per < foot * 0.8 ? best : null;
+}
 
 // Returns { parts: [{ name, faces }], objectOf, joints: [{ name, neck }] } or
 // null when the model doesn't look like a standing figure.
@@ -139,7 +175,12 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
       r.k = k;
     }
   }
-  const HEAD = 0, TORSO = 1, ARM_A = 2, ARM_B = 3, LEG_A = 4, LEG_B = 5;
+  const HEAD = 0, TORSO = 1, ARM_A = 2, ARM_B = 3, LEG_A = 4, LEG_B = 5, BASE = 6, FOOT_A = 7, FOOT_B = 8;
+
+  // A base (a plinth the figure stands on): one wide ring at the bottom whose
+  // area drops sharply a little higher up, where the feet stand on it.
+  const base = findBase(L, levels);
+  if (base) for (let k = 0; k < base.k; k++) for (const r of L[k]) r.part = BASE;
 
   // Head: above the neck, connected to the top.
   const neck = findHeadNeck(mesh);
@@ -212,7 +253,7 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
   }
   for (let t = 0; t < T; t++) if (objectOf[t] < 0) objectOf[t] = TORSO;
 
-  const faces = Array.from({ length: 6 }, () => []);
+  const faces = Array.from({ length: 7 }, () => []);
   for (let t = 0; t < T; t++) faces[objectOf[t]].push(t);
   const names = {
     [HEAD]: 'Head',
@@ -221,6 +262,7 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
     [ARM_B]: 'Arm (right in Front view)',
     [LEG_A]: 'Leg (left in Front view)',
     [LEG_B]: 'Leg (right in Front view)',
+    [BASE]: 'Base',
   };
   const parts = faces.map((f, i) => ({ id: i, name: names[i] || PART_NAMES[i], faces: f })).filter((p) => p.faces.length);
   if (parts.length < 3) return null;
@@ -233,11 +275,12 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
     for (const level of L) for (const r of level) if (r.part === part) rings.push(r);
     if (rings.length < 4) return;
     rings.sort((a, b) => b.k - a.k); // top first
-    const at = fromTop ? rings[Math.min(2, rings.length - 1)] : rings[rings.length - 1];
+    const at = fromTop === 'ankle' ? ankleRing(rings) : fromTop ? rings[Math.min(2, rings.length - 1)] : rings[rings.length - 1];
+    if (!at) return;
     const further = fromTop ? rings[Math.min(rings.length - 1, 8)] : rings[0];
     const c3 = [at.c[0], at.c[1], at.z];
     const f3 = [further.c[0], further.c[1], further.z];
-    const dir = norm(sub(c3, f3).every((x) => Math.abs(x) < 1e-9) ? [0, 0, 1] : sub(c3, f3));
+    const dir = fromTop === 'ankle' ? [0, 0, 1] : norm(sub(c3, f3).every((x) => Math.abs(x) < 1e-9) ? [0, 0, 1] : sub(c3, f3));
     const radius = at.per / (2 * Math.PI);
     joints.push({ name, part, neck: { normal: dir, offset: dir[0] * c3[0] + dir[1] * c3[1] + dir[2] * c3[2], center: c3, radius, perimeter: at.per } });
   };
@@ -245,5 +288,7 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
   limbJoint(ARM_B, 'Shoulder – arm (right in Front view)', true);
   limbJoint(LEG_A, 'Hip – leg (left in Front view)', true);
   limbJoint(LEG_B, 'Hip – leg (right in Front view)', true);
-  return { parts, objectOf, joints };
+  limbJoint(LEG_A, 'Ankle – foot (left in Front view)', 'ankle');
+  limbJoint(LEG_B, 'Ankle – foot (right in Front view)', 'ankle');
+  return { parts, objectOf, joints, base: base ? { z: min[2] + (base.k + 0.25) * step } : null };
 }
