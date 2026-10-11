@@ -284,11 +284,29 @@
             </div>
 
             <div id="cut-neck-ui" hidden>
-              <p class="hint">Click on the <b>neck</b> – where a head, an arm or a handle is thinnest. The app finds the narrowest ring there and draws the cut line around it in yellow, along the surface's natural creases so the joint hides. Both pieces are closed with the same surface, so they fit back seamlessly.</p>
-              <button id="neck-find" title="Look for necks on the whole model">Find necks automatically</button>
+              <p class="hint">Click on the <b>neck</b> – the cut line (yellow) goes around it <b>through the spot you click</b> and follows the surface's creases, so the joint hides. To cut where the neck meets the clothes, click right on that line; click again to move it. Both pieces are closed with the same surface, so they fit back seamlessly.</p>
+              <div class="row">
+                <button id="neck-find" title="Look for necks on the whole model">Find necks automatically</button>
+                <button id="neck-paint" title="Paint the cut line yourself – drag around the neck (right-drag turns the view)">Paint the line</button>
+              </div>
+              <div id="neck-paint-ui" hidden>
+                <p class="hint">Drag over the model to paint where the cut goes – all the way round (turn the view with the right mouse button). Ctrl+drag erases. The line follows your painting and fills small gaps.</p>
+                <label class="field">Brush <input id="neck-brush" type="range" min="6" max="80" value="18" /></label>
+                <button id="neck-paint-clear">Clear painting</button>
+              </div>
               <div id="neck-list" class="neck-list"></div>
               <label class="field" title="0 = the narrowest flat ring; 100 = follow folds and creases in the surface">Follow creases <input id="neck-follow" type="range" min="0" max="100" value="60" /> <span id="neck-follow-val">60%</span></label>
-              <label class="field" title="How far the line may stray from the narrowest ring along the neck">Room to wander <input id="neck-width" type="range" min="30" max="200" value="90" /> <span id="neck-width-val">90%</span></label>
+              <label class="field" title="How far the line may stray from the narrowest ring along the neck">Room to wander <input id="neck-width" type="range" min="30" max="400" value="90" /> <span id="neck-width-val">90%</span></label>
+              <button id="neck-collar" title="Follow folds strongly and let the line wander far – e.g. where the neck meets a collar">Snap to collar / crease</button>
+              <div class="sub-head">Connector</div>
+              <label class="field">Pin <select id="neck-pin">
+                <option value="none">None – glue only</option>
+                <option value="round" selected>Round pin</option>
+                <option value="square">Square pin</option>
+              </select></label>
+              <label class="field" title="Ø of a round pin or width of a square one; 0 = automatic">Size <input id="neck-pin-size" type="number" min="0" step="0.5" value="0" /> mm · Length <input id="neck-pin-len" type="number" min="0" step="0.5" value="0" /> mm</label>
+              <label class="field" title="How much narrower the pin's tip is than its base, so it slides in easily">Tip narrower by <input id="neck-taper" type="number" min="0" max="30" step="0.5" value="1" /> %</label>
+              <label class="field" title="How much wider the hole is than the pin">Hole wider by <input id="neck-tol" type="number" min="0" step="0.05" value="0.2" /> mm</label>
               <p id="neck-info" class="hint"></p>
               <div class="row">
                 <button id="neck-cut" class="primary" disabled title="Enter">Cut along the line</button>

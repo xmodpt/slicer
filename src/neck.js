@@ -244,12 +244,17 @@ function neckiness(mesh, neck, eps) {
   const tris = trianglesNear(mesh, neck.center, r * 10);
   let ratio = Infinity;
   for (const side of [-1, 1]) {
-    const d = neck.offset + side * r * 1.5;
-    const centre = neck.center.map((x, i) => x + neck.normal[i] * side * r * 1.5);
-    const ring = ringAt(mesh, tris, neck.normal, d, centre, r * 8, eps);
+    // Compare with the shape a little and a bit further away on this side.
+    let best = 0;
+    for (const k of [1.5, 2.5]) {
+      const d = neck.offset + side * r * k;
+      const centre = neck.center.map((x, i) => x + neck.normal[i] * side * r * k);
+      const ring = ringAt(mesh, tris, neck.normal, d, centre, r * 8, eps);
+      if (ring) best = Math.max(best, perimeter(ring) / neck.perimeter);
+    }
     // Nothing there: the end of the shape (a fingertip) – not a neck.
-    if (!ring) return 1;
-    ratio = Math.min(ratio, perimeter(ring) / neck.perimeter);
+    if (!best) return 1;
+    ratio = Math.min(ratio, best);
   }
   return ratio;
 }
@@ -401,18 +406,22 @@ class Heap {
 // strongly it follows creases (folds in the surface, like where a head meets
 // the neck) rather than staying close to the narrowest flat ring.
 // Returns a list of vertex ids (closed: the last connects to the first).
-export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
+//   painted: per-vertex mask of a line painted by the user – the cut follows it
+//   reach: how far the line may stray along the neck, in mm (instead of width)
+//   through: a vertex the line must pass through (e.g. where the user clicked)
+export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9, painted = null, reach = 0, through = -1 } = {}) {
   const P = mesh.positions, I = mesh.indices;
-  const n = neck.normal, d = neck.offset, c = neck.center, r = neck.radius;
+  const n = neck.normal, c = neck.center, r = neck.radius;
   const [U, V] = frame(n);
-  const W = r * width; // how far the line may stray along the neck
+  const W = reach > 0 ? reach : r * width; // how far the line may stray along the neck
+  const spread = Math.max(r * 2.5, neck.spread || 0); // how far from the axis
   const nv = mesh.vertexCount;
   // Vertices in the band around the neck.
   const band = new Int32Array(nv).fill(-1);
   const ids = [];
   const theta = [];
   const along = [];
-  const tris = trianglesNear(mesh, c, Math.hypot(W, r * 2.5) * 1.2);
+  const tris = trianglesNear(mesh, c, Math.hypot(W, spread) * 1.2);
   const consider = new Set();
   for (const t of tris) for (let k = 0; k < 3; k++) consider.add(I[t * 3 + k]);
   for (const v of consider) {
@@ -420,7 +429,7 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
     const h = dot(p, n);
     if (Math.abs(h) > W) continue;
     const u = dot(p, U), w = dot(p, V);
-    if (Math.hypot(u, w) > r * 2.5) continue; // another limb crossing the band
+    if (Math.hypot(u, w) > spread) continue; // another limb crossing the band
     band[v] = ids.length;
     ids.push(v);
     theta.push(Math.atan2(w, u));
@@ -428,12 +437,12 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
   }
   if (ids.length < 3) return null;
 
-  // Edges in the band with their cost: length, kept near the ring, cheaper
-  // along concave creases and dearer over convex ridges.
+  // Edges in the band, with how concave the surface is along each: positive
+  // in folds and creases, negative over ridges.
   const { heEdge, offsets, edgeHalfEdges } = mesh.topology();
   const normals = mesh.faceNormals();
   const centre = (t) => [0, 1, 2].map((k) => (P[I[t * 3] * 3 + k] + P[I[t * 3 + 1] * 3 + k] + P[I[t * 3 + 2] * 3 + k]) / 3);
-  const adj = ids.map(() => []);
+  const edges = []; // [ia, ib, length, signed angle]
   const seen = new Set();
   for (const t of tris) {
     for (let k = 0; k < 3; k++) {
@@ -443,22 +452,57 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
       const e = heEdge[t * 3 + k];
       if (seen.has(e)) continue;
       seen.add(e);
-      const pa = vert(P, a), pb = vert(P, b);
-      const len = Math.hypot(...sub(pa, pb));
-      const mid = (along[ia] + along[ib]) / 2;
-      let factor = 1 + 3 * (mid / W) ** 2;
-      if (follow > 0 && offsets[e + 1] - offsets[e] === 2) {
+      let angle = 0;
+      if (offsets[e + 1] - offsets[e] === 2) {
         const f1 = (edgeHalfEdges[offsets[e]] / 3) | 0, f2 = (edgeHalfEdges[offsets[e] + 1] / 3) | 0;
         const n1 = [normals[f1 * 3], normals[f1 * 3 + 1], normals[f1 * 3 + 2]];
         const n2 = [normals[f2 * 3], normals[f2 * 3 + 1], normals[f2 * 3 + 2]];
-        const angle = Math.acos(Math.max(-1, Math.min(1, dot(n1, n2))));
-        const concave = dot(n1, sub(centre(f2), centre(f1))) > 0 ? 1 : -1;
-        factor *= Math.max(0.08, Math.min(6, Math.exp(-follow * 4 * concave * angle)));
+        angle = Math.acos(Math.max(-1, Math.min(1, dot(n1, n2)))) * (dot(n1, sub(centre(f2), centre(f1))) > 0 ? 1 : -1);
       }
-      const cost = len * factor;
-      adj[ia].push(ib, cost);
-      adj[ib].push(ia, cost);
+      edges.push([ia, ib, Math.hypot(...sub(vert(P, a), vert(P, b))), angle]);
     }
+  }
+  // Scanned models are bumpy: average the creases over each vertex's
+  // neighbourhood (twice), so the line follows real folds – a collar, a jaw
+  // line – rather than every small dent.
+  let crease = new Float64Array(ids.length);
+  const count = new Float64Array(ids.length);
+  for (const [ia, ib, , angle] of edges) {
+    crease[ia] += angle;
+    crease[ib] += angle;
+    count[ia]++;
+    count[ib]++;
+  }
+  for (let i = 0; i < ids.length; i++) crease[i] /= count[i] || 1;
+  for (let round = 0; round < 2; round++) {
+    const next = Float64Array.from(crease);
+    const nCount = new Float64Array(ids.length).fill(1);
+    for (const [ia, ib] of edges) {
+      next[ia] += crease[ib];
+      next[ib] += crease[ia];
+      nCount[ia]++;
+      nCount[ib]++;
+    }
+    for (let i = 0; i < ids.length; i++) next[i] /= nCount[i];
+    crease = next;
+  }
+  // Cost: length, kept near the ring, cheaper along creases (and along a
+  // painted line), dearer over ridges.
+  const adj = ids.map(() => []);
+  for (const [ia, ib, len, rawAngle] of edges) {
+    const mid = (along[ia] + along[ib]) / 2;
+    let factor = 1 + 3 * (mid / W) ** 2;
+    if (follow > 0) {
+      const angle = 0.5 * rawAngle + 0.5 * ((crease[ia] + crease[ib]) / 2) * 2.5;
+      factor *= Math.max(0.05, Math.min(6, Math.exp(-follow * 4 * angle)));
+    }
+    if (painted) {
+      const pa = painted[ids[ia]], pb = painted[ids[ib]];
+      factor *= pa && pb ? 0.02 : pa || pb ? 0.2 : 1;
+    }
+    const cost = len * factor;
+    adj[ia].push(ib, cost);
+    adj[ib].push(ia, cost);
   }
 
   // Shortest path from a vertex back to itself going once around the axis:
@@ -503,9 +547,27 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
     return { cost: dist[goal], path };
   };
 
-  // Start from a few points around the ring; keep the cheapest loop.
+  // Start from a few points around the ring (on the painted line, if any);
+  // keep the cheapest loop.
   const starts = [];
-  for (let s = 0; s < 6; s++) {
+  if (through >= 0 && band[through] >= 0) starts.push(band[through]);
+  else if (painted) {
+    const onLine = ids.map((v, i) => i).filter((i) => painted[ids[i]]);
+    for (let s = 0; s < 6 && onLine.length; s++) {
+      const want = -Math.PI + ((s + 0.5) * 2 * Math.PI) / 6;
+      let best = -1, bestScore = Infinity;
+      for (const i of onLine) {
+        let da = Math.abs(theta[i] - want);
+        da = Math.min(da, 2 * Math.PI - da);
+        if (da < bestScore) {
+          bestScore = da;
+          best = i;
+        }
+      }
+      if (best >= 0 && !starts.includes(best)) starts.push(best);
+    }
+  }
+  for (let s = 0; s < 6 && !painted && !starts.length; s++) {
     const want = -Math.PI + ((s + 0.5) * 2 * Math.PI) / 6;
     let best = -1, bestScore = Infinity;
     ids.forEach((_, i) => {
@@ -551,7 +613,125 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
     const inner = path.slice(i, j);
     path = turnOf(inner) !== 0 ? inner : [...path.slice(0, i), ...path.slice(j)];
   }
-  return path.length >= 3 && turnOf(path) !== 0 ? path : null;
+  // A real ring around the neck, not a tiny loop around a point.
+  if (path.length < 6 || perimeter(path.map((v) => vert(P, v))) < r * 2) return null;
+  return turnOf(path) !== 0 ? path : null;
+}
+
+// A "neck" fitted to a line painted around the shape: its centre, the
+// direction it goes around, and how far it strays – for seamLoop(…, { painted }).
+export function neckFromPainting(mesh, painted) {
+  const P = mesh.positions;
+  const pts = [];
+  for (let v = 0; v < mesh.vertexCount; v++) if (painted[v]) pts.push(vert(P, v));
+  if (pts.length < 6) return null;
+  const c0 = centroid(pts);
+  // The painted ring's plane: the direction of least spread.
+  const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const p of pts) {
+    const q = sub(p, c0);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] += q[i] * q[j];
+  }
+  const n = smallestEigenvector(C);
+  const [U, V] = frame(n);
+  // Its centre: a circle fitted through the painted points (a stroke on one
+  // side only still gives the right middle).
+  const uv = pts.map((p) => [dot(sub(p, c0), U), dot(sub(p, c0), V)]);
+  const fit = fitCircle(uv);
+  const angleOf = ([u, v]) => Math.atan2(v - (fit?.cy ?? 0), u - (fit?.cx ?? 0));
+  const angles = uv.map(angleOf).sort((a, b) => a - b);
+  let gap = 2 * Math.PI - (angles[angles.length - 1] - angles[0]);
+  for (let i = 1; i < angles.length; i++) gap = Math.max(gap, angles[i] - angles[i - 1]);
+  const coverage = 1 - gap / (2 * Math.PI);
+  if (fit && coverage >= 0.6) {
+    const c = [0, 1, 2].map((k) => c0[k] + U[k] * fit.cx + V[k] * fit.cy);
+    let spread = 0, reach = 0;
+    for (const p of pts) {
+      const q = sub(p, c);
+      spread = Math.max(spread, Math.hypot(dot(q, U), dot(q, V)));
+      reach = Math.max(reach, Math.abs(dot(q, n)));
+    }
+    const r = fit.r;
+    return { normal: n, offset: dot(n, c), center: c, radius: r, perimeter: 2 * Math.PI * r, spread: Math.max(spread, r) * 1.3, reach: reach + r * 0.6, coverage };
+  }
+  // A short stroke: find the neck there (like a click) for the centre and
+  // direction; the painting then steers the line.
+  let seed = pts[0], best = Infinity;
+  for (const p of pts) {
+    const d = Math.hypot(...sub(p, c0));
+    if (d < best) {
+      best = d;
+      seed = p;
+    }
+  }
+  const base = findNeckAt(mesh, seed);
+  if (!base) return null;
+  let far = 0, wide = 0;
+  const [U2, V2] = frame(base.normal);
+  for (const p of pts) {
+    const q = sub(p, base.center);
+    far = Math.max(far, Math.abs(dot(q, base.normal)));
+    wide = Math.max(wide, Math.hypot(dot(q, U2), dot(q, V2)));
+  }
+  return { ...base, spread: Math.max(base.radius * 2.5, wide * 1.3), reach: Math.max(base.radius * 3, far + base.radius * 0.5), coverage };
+}
+
+// Least-squares circle through 2D points: { cx, cy, r } or null.
+function fitCircle(pts) {
+  // u² + v² + D u + E v + F = 0
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], b = [0, 0, 0];
+  for (const [u, v] of pts) {
+    const row = [u, v, 1], rhs = -(u * u + v * v);
+    for (let i = 0; i < 3; i++) {
+      b[i] += row[i] * rhs;
+      for (let j = 0; j < 3; j++) A[i][j] += row[i] * row[j];
+    }
+  }
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const d = det(A);
+  if (Math.abs(d) < 1e-12) return null;
+  const solve = (k) => det(A.map((row, i) => row.map((x, j) => (j === k ? b[i] : x)))) / d;
+  const D = solve(0), E = solve(1), F = solve(2);
+  const cx = -D / 2, cy = -E / 2;
+  const r2 = cx * cx + cy * cy - F;
+  return r2 > 0 ? { cx, cy, r: Math.sqrt(r2) } : null;
+}
+
+// Eigenvector of the smallest eigenvalue of a symmetric 3×3 matrix (Jacobi).
+function smallestEigenvector(M) {
+  const a = M.map((row) => [...row]);
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) off += a[p][q] ** 2;
+    if (off < 1e-20) break;
+    for (let p = 0; p < 3; p++) {
+      for (let q = p + 1; q < 3; q++) {
+        if (Math.abs(a[p][q]) < 1e-30) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const cs = 1 / Math.sqrt(t * t + 1), sn = t * cs;
+        for (let k = 0; k < 3; k++) {
+          const akp = a[k][p], akq = a[k][q];
+          a[k][p] = cs * akp - sn * akq;
+          a[k][q] = sn * akp + cs * akq;
+        }
+        for (let k = 0; k < 3; k++) {
+          const apk = a[p][k], aqk = a[q][k];
+          a[p][k] = cs * apk - sn * aqk;
+          a[q][k] = sn * apk + cs * aqk;
+        }
+        for (let k = 0; k < 3; k++) {
+          const vkp = v[k][p], vkq = v[k][q];
+          v[k][p] = cs * vkp - sn * vkq;
+          v[k][q] = sn * vkp + cs * vkq;
+        }
+      }
+    }
+  }
+  let m = 0;
+  for (let i = 1; i < 3; i++) if (a[i][i] < a[m][m]) m = i;
+  return norm([v[0][m], v[1][m], v[2][m]]);
 }
 
 // --------------------------------------------------------------------------
@@ -560,7 +740,7 @@ export function seamLoop(mesh, neck, { follow = 0.6, width = 0.9 } = {}) {
 // Separates the mesh along a closed loop of edges and closes both sides with
 // the same (mirrored) surface. The smaller side is the one split off.
 // Returns { faces: mask of the split-off side after the cut, capTriangles }.
-export function cutAlongLoop(mesh, loop, neck) {
+export function cutAlongLoop(mesh, loop, neck, connector = null) {
   if (!loop || loop.length < 3) throw new Error('No cut line around the neck.');
   const I = mesh.indices, P = mesh.positions;
   const { heEdge, offsets, edgeHalfEdges } = mesh.topology();
@@ -577,7 +757,10 @@ export function cutAlongLoop(mesh, loop, neck) {
     let count = 0;
     while (stack.length) {
       const t = stack.pop();
-      count++;
+      // Surface area, not triangle count: a detailed head can have more
+      // triangles than a plain body.
+      const a = vert(P, I[t * 3]), b = vert(P, I[t * 3 + 1]), c = vert(P, I[t * 3 + 2]);
+      count += Math.hypot(...cross(sub(b, a), sub(c, a)));
       for (let k = 0; k < 3; k++) {
         const a = I[t * 3 + k], b = I[t * 3 + ((k + 1) % 3)];
         if (loopEdges.has(key(a, b))) continue;
@@ -605,45 +788,303 @@ export function cutAlongLoop(mesh, loop, neck) {
   const sideA = flood(faceAB);
   if (sideA.mask[faceBA]) throw new Error('The cut line does not go all the way round – try another spot.');
   const sideB = flood(faceBA);
-  // Split off the smaller side.
+  // Split off the smaller side (by surface area).
   const [cutSide, otherFace] = sideA.count <= sideB.count ? [sideA, faceBA] : [sideB, faceAB];
   const mask = cutSide.mask;
 
-  // The cap: the loop triangulated once, projected onto the neck plane. On the
-  // side that keeps its vertices the cap runs against that side's edges.
+  // The cap: the loop triangulated in the neck plane (lifted back onto the
+  // loop's own points), the same surface for both pieces. On the side that
+  // keeps its vertices the cap runs against that side's edges.
   const n = neck?.normal || [0, 0, 1];
   const [U, V] = frame(n);
   const restHasAB = otherFace === faceAB; // the rest uses a0→b0, so its cap goes b0→a0
   const order = restHasAB ? [...loop].reverse() : [...loop];
-  const pts2 = order.map((v) => {
-    const p = vert(P, v);
-    return new Vector2(dot(p, U), dot(p, V));
-  });
+  const loop3 = order.map((v) => vert(P, v));
+  const loop2 = loop3.map((p) => new Vector2(dot(p, U), dot(p, V)));
   let area = 0;
-  for (let i = 0; i < pts2.length; i++) {
-    const p = pts2[i], q = pts2[(i + 1) % pts2.length];
+  for (let i = 0; i < loop2.length; i++) {
+    const p = loop2[i], q = loop2[(i + 1) % loop2.length];
     area += p.x * q.y - q.x * p.y;
   }
-  const tris = ShapeUtils.triangulateShape(pts2, []).map(([i, j, k]) => {
-    const s = (pts2[j].x - pts2[i].x) * (pts2[k].y - pts2[i].y) - (pts2[k].x - pts2[i].x) * (pts2[j].y - pts2[i].y);
-    return s * area >= 0 ? [order[i], order[j], order[k]] : [order[i], order[k], order[j]];
-  });
-  if (!tris.length) throw new Error('Could not close the cut.');
+  // Which way the split-off piece lies, and whether the model's triangles face
+  // outwards (o = 1) or inwards (o = −1, an inside-out model).
+  const meanOf = (pick) => {
+    const m = [0, 0, 0];
+    let k = 0;
+    for (let t = 0; t < mask.length; t++) {
+      if (!pick(mask[t])) continue;
+      for (let c = 0; c < 3; c++) for (let a = 0; a < 3; a++) m[a] += P[I[t * 3 + c] * 3 + a];
+      k += 3;
+    }
+    return m.map((x) => x / (k || 1));
+  };
+  const towards = Math.sign(dot(sub(meanOf((v) => v), meanOf((v) => !v)), n)) || 1;
+  const dir = n.map((x) => x * towards); // from the rest into the split-off piece
+  const restCapUp = Math.sign(area) || 1; // the rest's cap faces +n (1) or −n (−1)
+  const o = restCapUp === towards ? 1 : -1;
 
-  // Detach the smaller side (its loop vertices get copies), then add the caps.
+  // The connector: a pin on the rest, a hole in the split-off piece.
+  const conn = planConnector(mesh, connector, { loop2, loop3, n, dir, U, V, mask });
+
+  // Detach the smaller side (its loop vertices get copies).
   const { dup } = mesh.splitOff(mask, { close: false });
-  const capIdx = [];
-  for (const [i, j, k] of tris) capIdx.push(i, j, k); // rest side
-  for (const [i, j, k] of tris) capIdx.push(dup[i], dup[k], dup[j]); // split-off side, mirrored
-  const indices = new Uint32Array(mesh.indices.length + capIdx.length);
-  indices.set(mesh.indices);
-  indices.set(capIdx, mesh.indices.length);
+  const positions = Array.from(mesh.positions);
+  const addVert = (p) => {
+    positions.push(p[0], p[1], p[2]);
+    return positions.length / 3 - 1;
+  };
+  const at = (u, v, h) => [0, 1, 2].map((k) => U[k] * u + V[k] * v + n[k] * h);
+  const rest = [], piece = [];
+  const tri = (list, a, b, c, want) => {
+    const pa = positions.slice(a * 3, a * 3 + 3), pb = positions.slice(b * 3, b * 3 + 3), pc = positions.slice(c * 3, c * 3 + 3);
+    const nr = cross(sub(pb, pa), sub(pc, pa));
+    if (dot(nr, want) * o < 0) list.push(a, c, b);
+    else list.push(a, b, c);
+  };
+
+  // Caps (with the pin's / hole's outline cut out when there is one).
+  const capUp = n.map((x) => x * restCapUp * o); // outward normal of the rest's cap
+  const capDown = capUp.map((x) => -x);
+  // Seen along the axis the line usually goes round without turning back
+  // (it may step straight up or down a fold): then the cap is a fan from the
+  // middle, or a strip zipped to the pin's / hole's ring, in angular order –
+  // always closed, whatever the steps. Otherwise: a flat triangulation,
+  // checked to cover every edge.
+  const mid = conn.ok ? conn.c2 : poleOf(loop2);
+  const angles = loop2.map((p) => Math.atan2(p.y - mid[1], p.x - mid[0]));
+  const dirSign = Math.sign(area) || 1;
+  const unwrapped = [0];
+  let monotone = true;
+  for (let i = 1; i <= angles.length; i++) {
+    let d = angles[i % angles.length] - angles[i - 1];
+    if (d > Math.PI) d -= 2 * Math.PI;
+    if (d < -Math.PI) d += 2 * Math.PI;
+    if (d * dirSign < -1e-9) monotone = false;
+    unwrapped.push(unwrapped[i - 1] + d * dirSign);
+  }
+  if (Math.abs(unwrapped[angles.length] - 2 * Math.PI) > 1e-3) monotone = false;
+  // Emit a triangle wound like the loop (or mirrored for the other piece).
+  const put = (list, mirrored, a, b, c) => (mirrored ? list.push(a, c, b) : list.push(a, b, c));
+  const cap = (list, ids, hole, mirrored, want) => {
+    if (monotone) {
+      if (!hole) {
+        const centre = addVert(at(mid[0], mid[1], loop3.reduce((s, p) => s + dot(p, n), 0) / loop3.length));
+        for (let i = 0; i < ids.length; i++) put(list, mirrored, centre, ids[i], ids[(i + 1) % ids.length]);
+        return;
+      }
+      // The ring in the loop's direction, starting where the loop starts.
+      const rel = (u, v) => {
+        let a = (Math.atan2(v - mid[1], u - mid[0]) - angles[0]) * dirSign;
+        a = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        return a;
+      };
+      let inner = hole.map(([u, v], k) => ({ id: hole.ids[k], a: rel(u, v) }));
+      if (dirSign < 0) inner.reverse();
+      const start = inner.reduce((best, x, k) => (x.a < inner[best].a ? k : best), 0);
+      inner = [...inner.slice(start), ...inner.slice(0, start)];
+      const n1 = ids.length, m1 = inner.length;
+      let i = 0, j = 0;
+      while (i < n1 || j < m1) {
+        const nextOuter = unwrapped[i + 1];
+        const nextInner = j + 1 < m1 ? inner[j + 1].a : 2 * Math.PI + inner[0].a;
+        const o0 = ids[i % n1], o1 = ids[(i + 1) % n1], i0 = inner[j % m1].id, i1 = inner[(j + 1) % m1].id;
+        if (j >= m1 || (i < n1 && nextOuter <= nextInner)) {
+          put(list, mirrored, o0, o1, i0);
+          i++;
+        } else {
+          put(list, mirrored, i1, i0, o0);
+          j++;
+        }
+      }
+      return;
+    }
+    const holes = hole ? [hole.map(([u, v]) => new Vector2(u, v))] : [];
+    const all = [...ids, ...(hole ? hole.ids : [])];
+    const faces = ShapeUtils.triangulateShape(loop2.map((p) => p.clone()), holes);
+    const expected = ids.length + (hole ? hole.length + 2 : 0) - 2;
+    if (faces.length !== expected) throw new Error('Could not close the cut along this line – try other settings (less “Follow creases”) or paint the line.');
+    for (const [a, b, c] of faces) tri(list, all[a], all[b], all[c], want);
+  };
+  const ring = (outline, h) => {
+    const ids = outline.map(([u, v]) => addVert(at(u, v, h)));
+    return Object.assign(outline.map((x) => x), { ids });
+  };
+  let pinBase = null, holeTop = null;
+  if (conn.ok) {
+    pinBase = ring(conn.outline(conn.half), conn.h0);
+    holeTop = ring(conn.outline(conn.half + conn.gap), conn.h0);
+  }
+  // The loop's own winding (order) is the rest's; the piece's cap is mirrored.
+  const windsUp = restCapUp > 0 === dirSign > 0;
+  cap(rest, order, pinBase, !windsUp, capUp);
+  cap(piece, order.map((v) => dup[v]), holeTop, windsUp, capDown);
+
+  if (conn.ok) {
+    const { h0, len, depth } = conn;
+    const sideOf = (outline, k) => {
+      const [u1, v1] = outline[k], [u2, v2] = outline[(k + 1) % outline.length];
+      return at((u1 + u2) / 2 - conn.c2[0], (v1 + v2) / 2 - conn.c2[1], 0);
+    };
+    // Pin: tapered walls, flat tip.
+    const tip = ring(conn.outline(conn.half * (1 - conn.taper)), h0 + towards * len);
+    const tipCentre = addVert(at(conn.c2[0], conn.c2[1], h0 + towards * len));
+    for (let k = 0; k < pinBase.length; k++) {
+      const k1 = (k + 1) % pinBase.length, out = sideOf(pinBase, k);
+      tri(rest, pinBase.ids[k], pinBase.ids[k1], tip.ids[k1], out);
+      tri(rest, pinBase.ids[k], tip.ids[k1], tip.ids[k], out);
+      tri(rest, tip.ids[k], tip.ids[k1], tipCentre, dir);
+    }
+    // Hole: straight walls, flat bottom.
+    const bottom = ring(conn.outline(conn.half + conn.gap), h0 + towards * depth);
+    const bottomCentre = addVert(at(conn.c2[0], conn.c2[1], h0 + towards * depth));
+    const back = dir.map((x) => -x);
+    for (let k = 0; k < holeTop.length; k++) {
+      const k1 = (k + 1) % holeTop.length, inward = sideOf(holeTop, k).map((x) => -x);
+      tri(piece, holeTop.ids[k], holeTop.ids[k1], bottom.ids[k1], inward);
+      tri(piece, holeTop.ids[k], bottom.ids[k1], bottom.ids[k], inward);
+      tri(piece, bottom.ids[k], bottom.ids[k1], bottomCentre, back);
+    }
+  }
+
   const before = mesh.triangleCount;
-  mesh._set(mesh.positions, indices);
-  // Faces of the split-off side (its old faces keep their numbers; the second
-  // half of the caps belongs to it).
+  const indices = new Uint32Array(mesh.indices.length + rest.length + piece.length);
+  indices.set(mesh.indices);
+  indices.set(rest, mesh.indices.length);
+  indices.set(piece, mesh.indices.length + rest.length);
+  mesh._set(new Float32Array(positions), indices);
+  // Faces of the split-off piece: its old faces keep their numbers, and the
+  // last added triangles are its cap and hole.
   const faces = new Uint8Array(mesh.triangleCount);
   faces.set(mask);
-  for (let t = before + tris.length; t < mesh.triangleCount; t++) faces[t] = 1;
-  return { faces, capTriangles: tris.length };
+  for (let t = before + rest.length / 3; t < mesh.triangleCount; t++) faces[t] = 1;
+  return { faces, connector: conn.ok ? conn.summary : null, note: conn.note || '' };
+}
+
+// The point inside a polygon ([Vector2]) farthest from its edges (roughly).
+function poleOf(pts2) {
+  const pts = pts2.map((p) => [p.x, p.y]);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  let best = null, bestD = -1;
+  for (let i = 0; i <= 30; i++) {
+    for (let j = 0; j <= 30; j++) {
+      const q = [Math.min(...xs) + ((Math.max(...xs) - Math.min(...xs)) * i) / 30, Math.min(...ys) + ((Math.max(...ys) - Math.min(...ys)) * j) / 30];
+      let inside = false;
+      for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) {
+        const [xi, yi] = pts[a], [xj, yj] = pts[b];
+        if (yi > q[1] !== yj > q[1] && q[0] < ((xj - xi) * (q[1] - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      if (!inside) continue;
+      let d = Infinity;
+      for (let a = 0; a < pts.length; a++) {
+        const [ax, ay] = pts[a], [bx, by] = pts[(a + 1) % pts.length];
+        const dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((q[0] - ax) * dx + (q[1] - ay) * dy) / (dx * dx + dy * dy || 1)));
+        d = Math.min(d, Math.hypot(ax + t * dx - q[0], ay + t * dy - q[1]));
+      }
+      if (d > bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+  }
+  return best || [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+}
+
+// Plans the pin for a neck cut: where (the middle of the cut), how big (fits
+// in the cut with a wall around the hole), how long (the hole must not break
+// through the split-off piece). Options: { shape: 'round' | 'square' | 'none',
+// size, length (0 = automatic), tolerance (mm, hole wider than the pin),
+// taper (% narrower at the tip) }.
+function planConnector(mesh, opts, { loop2, loop3, n, dir, U, V, mask }) {
+  const shape = opts?.shape || 'none';
+  if (shape === 'none') return { ok: false };
+  const gap = Math.max(0, opts.tolerance ?? 0.2) / 2;
+  const taper = Math.max(0, Math.min(30, opts.taper ?? 1)) / 100;
+  const pts = loop2.map((p) => [p.x, p.y]);
+  const edges = pts.map((p, i) => [p, pts[(i + 1) % pts.length]]);
+  const distEdges = (q) => {
+    let best = Infinity;
+    for (const [[ax, ay], [bx, by]] of edges) {
+      const dx = bx - ax, dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((q[0] - ax) * dx + (q[1] - ay) * dy) / (dx * dx + dy * dy || 1)));
+      best = Math.min(best, Math.hypot(ax + t * dx - q[0], ay + t * dy - q[1]));
+    }
+    return best;
+  };
+  const inside = ([x, y]) => {
+    let c = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+  // The middle: the point inside the cut farthest from its edge.
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  let c2 = null, rho = 0;
+  for (let i = 0; i <= 30; i++) {
+    for (let j = 0; j <= 30; j++) {
+      const q = [Math.min(...xs) + ((Math.max(...xs) - Math.min(...xs)) * i) / 30, Math.min(...ys) + ((Math.max(...ys) - Math.min(...ys)) * j) / 30];
+      if (!inside(q)) continue;
+      const d = distEdges(q);
+      if (d > rho) {
+        rho = d;
+        c2 = q;
+      }
+    }
+  }
+  if (!c2) return { ok: false, note: 'No room for a pin in this cut – glue only.' };
+  const half = opts.size > 0 ? opts.size / 2 : Math.max(0.75, Math.round(rho * 0.35 * 4) / 4);
+  const wall = Math.max(0.8, half * 0.3);
+  // A square's corner reaches √2 × half from the middle.
+  const reachOut = (shape === 'square' ? Math.SQRT2 : 1) * (half + gap);
+  if (reachOut + wall > rho) return { ok: false, note: `A ${shape} pin of ${(2 * half).toFixed(1)} mm doesn't fit this cut (${(2 * rho).toFixed(1)} mm across) – use a smaller size.` };
+  // The cut's height there: the loop's average along the axis.
+  const h0 = loop3.reduce((s, p) => s + dot(p, n), 0) / loop3.length;
+  const centre = [0, 1, 2].map((k) => U[k] * c2[0] + V[k] * c2[1] + n[k] * h0);
+  // How deep the split-off piece is behind the cut there.
+  const depthBehind = rayDepth(mesh, mask, centre, dir);
+  const clearance = 0.3;
+  let len = opts.length > 0 ? opts.length : half * 3;
+  len = Math.min(len, depthBehind - wall - clearance);
+  if (!(len >= half)) return { ok: false, note: 'The piece is too thin behind the cut for a pin – glue only.' };
+  const outline = (h) =>
+    shape === 'square'
+      ? [[1, 1], [-1, 1], [-1, -1], [1, -1]].map(([a, b]) => [c2[0] + a * h, c2[1] + b * h])
+      : Array.from({ length: 32 }, (_, k) => [c2[0] + h * Math.cos((2 * Math.PI * k) / 32), c2[1] + h * Math.sin((2 * Math.PI * k) / 32)]);
+  return {
+    ok: true,
+    c2,
+    h0,
+    half,
+    gap,
+    taper,
+    len,
+    depth: len + clearance,
+    outline,
+    summary: { shape, size: 2 * half, length: len, holeSize: 2 * (half + gap), holeDepth: len + clearance, taper: taper * 100 },
+  };
+}
+
+// Distance from `from` along `dir` to the far side of the masked triangles.
+function rayDepth(mesh, mask, from, dir) {
+  const P = mesh.positions, I = mesh.indices;
+  let best = Infinity;
+  for (let t = 0; t < mask.length; t++) {
+    if (!mask[t]) continue;
+    const a = vert(P, I[t * 3]), b = vert(P, I[t * 3 + 1]), c = vert(P, I[t * 3 + 2]);
+    const e1 = sub(b, a), e2 = sub(c, a);
+    const h = cross(dir, e2);
+    const det = dot(e1, h);
+    if (Math.abs(det) < 1e-12) continue;
+    const s = sub(from, a);
+    const u = dot(s, h) / det;
+    if (u < 0 || u > 1) continue;
+    const q = cross(s, e1);
+    const v = dot(dir, q) / det;
+    if (v < 0 || u + v > 1) continue;
+    const dist = dot(e2, q) / det;
+    if (dist > 1e-6 && dist < best) best = dist;
+  }
+  return best;
 }

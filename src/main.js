@@ -8,7 +8,7 @@ import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
-import { findNeckAt, findNecks, seamLoop, cutAlongLoop } from './neck.js';
+import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -661,6 +661,7 @@ function refresh({ frame = false } = {}) {
   if (state.faceGroup.length !== mesh.triangleCount) state.faceGroup = new Int32Array(mesh.triangleCount);
   // A chosen neck's cut line refers to the old triangles.
   state.neck = null;
+  state.neckThrough = -1;
   state.neckLoop = null;
   state.neckLoopPts = null;
   $('neck-cut').disabled = true;
@@ -1357,7 +1358,9 @@ function updateControls() {
   viewer.controls.buttons = {
     0: orbit
       ? 'rotate'
-      : state.tool === 'cut'
+      : state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting
+        ? null
+        : state.tool === 'cut'
         ? (e) => {
             const r = canvas.getBoundingClientRect();
             return cutGizmo.hit(e.clientX - r.left, e.clientY - r.top) ? null : 'rotate-drag';
@@ -1371,7 +1374,7 @@ function updateControls() {
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
   const cursors = { brush: 'none', pick: 'pointer', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize', move: 'move' };
-  view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
+  view.style.cursor = orbit ? 'grab' : state.tool === 'cut' && state.neckPainting && state.cutKind === 'neck' ? 'none' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
 
@@ -1394,8 +1397,7 @@ function brushAt(p, mode) {
   applyFaces(faces, mode);
 }
 
-function moveBrushCursor(p) {
-  const size = +$('brush-size').value;
+function moveBrushCursor(p, size = +$('brush-size').value) {
   Object.assign(brushCursor.style, {
     display: 'block',
     left: p.x + 'px',
@@ -1423,11 +1425,13 @@ canvas.addEventListener('pointerdown', (e) => {
   if (state.tool === 'brush') brushAt(p, drag.mode);
   if (state.tool === 'rotate') startSpin(p.x);
   if (state.tool === 'move') startSlide(p);
+  if (state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) neckPaintAt(p, e.ctrlKey || e.metaKey);
 });
 
 canvas.addEventListener('pointermove', (e) => {
   const p = localPos(e);
   if (state.tool === 'brush' && !orbitOverride) moveBrushCursor(p);
+  if (state.tool === 'cut' && state.neckPainting && !orbitOverride) moveBrushCursor(p, +$('neck-brush').value);
   if (state.tool === 'object' && state.seg && e.buttons === 0) {
     const face = viewer.faceAt(p.x, p.y);
     setHoverObjects(face < 0 ? [] : rowObjects(state.seg.objectOf[face]));
@@ -1442,6 +1446,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (state.tool === 'rotate') updateSpin(p.x, e.shiftKey);
   if (state.tool === 'move') updateSlide(p, e.shiftKey, e.ctrlKey || e.metaKey);
   if (state.tool === 'brush') brushAt(p, drag.mode);
+  if (state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) neckPaintAt(p, e.ctrlKey || e.metaKey);
   if (state.tool === 'box' || state.tool === 'block') {
     boxRect.classList.toggle('block', state.tool === 'block');
     Object.assign(boxRect.style, {
@@ -1494,6 +1499,10 @@ canvas.addEventListener('pointerup', (e) => {
       ? viewer.facesInRectThrough(start.x, start.y, p.x, p.y)
       : viewer.facesInRect(start.x, start.y, p.x, p.y);
     applyFaces(faces, mode);
+    return;
+  }
+  if (tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) {
+    neckFromPaint();
     return;
   }
   if (tool === 'brush' || moved) return;
@@ -1903,6 +1912,8 @@ state.cutKind = 'plane';
 
 function setCutKind(kind) {
   state.cutKind = kind;
+  if (kind !== 'neck' && state.neckPainting) setNeckPainting(false);
+  clearTimeout(analysisTimer);
   for (const b of document.querySelectorAll('[data-cutkind]')) b.classList.toggle('active', b.dataset.cutkind === kind);
   $('cut-neck-ui').hidden = kind !== 'neck';
   $('cut-plane-ui').hidden = kind === 'neck';
@@ -1915,7 +1926,70 @@ function setCutKind(kind) {
 for (const b of document.querySelectorAll('[data-cutkind]')) b.addEventListener('click', () => setCutKind(b.dataset.cutkind));
 
 function neckOptions() {
-  return { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100 };
+  const opts = { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100, through: state.neckThrough ?? -1 };
+  // A painted line: follow it (creases count less), as far as it goes.
+  if (state.neck?.painted) Object.assign(opts, { painted: state.neck.painted, reach: state.neck.reach, follow: opts.follow * 0.5 });
+  return opts;
+}
+
+function neckConnector() {
+  return {
+    shape: $('neck-pin').value,
+    size: +$('neck-pin-size').value || 0,
+    length: +$('neck-pin-len').value || 0,
+    taper: Math.max(0, +$('neck-taper').value || 0),
+    tolerance: Math.max(0, +$('neck-tol').value || 0),
+  };
+}
+
+// Painting the cut line: a brush on the model (the painted triangles show
+// like a selection). The line is worked out when a stroke ends.
+state.neckPainting = false;
+function setNeckPainting(on) {
+  state.neckPainting = on;
+  $('neck-paint').classList.toggle('active', on);
+  $('neck-paint-ui').hidden = !on;
+  if (!on) brushCursor.style.display = 'none';
+  updateControls();
+  if (on) {
+    state.neck = null;
+    updateNeckLine();
+    runSelection('none');
+    $('neck-info').textContent = 'Paint around the neck where the cut should go.';
+  }
+}
+$('neck-paint').addEventListener('click', () => setNeckPainting(!state.neckPainting));
+$('neck-paint-clear').addEventListener('click', () => {
+  runSelection('none');
+  state.neck = null;
+  updateNeckLine();
+});
+$('neck-collar').addEventListener('click', () => {
+  $('neck-follow').value = 100;
+  $('neck-width').value = 300;
+  $('neck-follow-val').textContent = '100%';
+  $('neck-width-val').textContent = '300%';
+  if (state.neck) updateNeckLine();
+});
+
+function neckPaintAt(p, erase) {
+  const faces = viewer.facesInCircle(p.x, p.y, +$('neck-brush').value / 2);
+  applyFaces(faces, erase ? 'remove' : 'add');
+}
+
+function neckFromPaint() {
+  const painted = state.mesh.verticesOf(state.selection);
+  const neck = neckFromPainting(state.mesh, painted);
+  if (!neck) {
+    state.neck = null;
+    updateNeckLine();
+    return;
+  }
+  neck.painted = painted;
+  state.neck = neck;
+  state.neckThrough = -1;
+  updateNeckLine();
+  if (state.neckLoop && neck.coverage < 0.75) $('neck-info').textContent += ' The painting doesn’t go all the way round yet – the rest of the line was guessed; paint more to steer it.';
 }
 
 // The cut line around the chosen neck.
@@ -1938,19 +2012,39 @@ function updateNeckLine() {
   state.neckLoop = loop;
   const P = state.mesh.positions;
   state.neckLoopPts = loop.map((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
-  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Cut when it looks right.`;
+  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Not where you want it? Click right on the spot it should pass (e.g. where the neck meets the collar), use “Snap to collar”, or paint it. Then cut.`;
   $('neck-cut').disabled = false;
   showCutPlane();
 }
 
-function chooseNeck(neck) {
+function chooseNeck(neck, through = state.neckThrough) {
   state.neck = neck;
+  state.neckThrough = through;
   updateNeckLine();
 }
 
 function neckClick(p) {
   const point = viewer.pointAt(p.x, p.y);
-  if (!point) return;
+  const face = viewer.faceAt(p.x, p.y);
+  if (!point || face < 0) return;
+  // The cut passes through the clicked spot: its nearest corner.
+  const P = state.mesh.positions, I = state.mesh.indices;
+  let through = -1, best = Infinity;
+  for (let k = 0; k < 3; k++) {
+    const v = I[face * 3 + k];
+    const d = Math.hypot(P[v * 3] - point.x, P[v * 3 + 1] - point.y, P[v * 3 + 2] - point.z);
+    if (d < best) {
+      best = d;
+      through = v;
+    }
+  }
+  // A click near the chosen neck just moves the line through that spot.
+  const near = state.neck && !state.neck.painted && Math.hypot(...state.neck.center.map((c, k) => c - point.getComponent(k))) < state.neck.radius * 4;
+  if (near) {
+    state.neckThrough = through;
+    updateNeckLine();
+    return;
+  }
   busy(async () => {
     await stage('Looking for the neck…', null);
     const neck = findNeckAt(state.mesh, point.toArray());
@@ -1960,6 +2054,7 @@ function neckClick(p) {
       $('neck-info').textContent = 'No neck here – click on a narrow part that goes all the way round (a neck, a wrist, a handle).';
       return;
     }
+    state.neckThrough = through;
     chooseNeck(neck);
   });
 }
@@ -1983,7 +2078,7 @@ $('neck-find').addEventListener('click', () => {
       b.querySelector('.what').textContent = `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it`;
       b.addEventListener('click', () => {
         for (const o of list.children) o.classList.toggle('active', o === b);
-        chooseNeck(neck);
+        chooseNeck(neck, -1);
       });
       list.append(b);
     });
@@ -2002,7 +2097,7 @@ function doNeckCut() {
   let result = null;
   edit((mesh) => {
     try {
-      result = cutAlongLoop(mesh, neckLoop, neck);
+      result = cutAlongLoop(mesh, neckLoop, neck, neckConnector());
       return 'Cut along the neck – both pieces are closed';
     } catch (err) {
       toast(err.message);
@@ -2027,7 +2122,15 @@ function doNeckCut() {
   $('neck-list').innerHTML = '';
   $('neck-cut').disabled = true;
   $('neck-apart').hidden = false;
-  $('neck-info').textContent = 'Done – the cut-off piece is now a separate model. “Pull apart” moves it away so you can see the joint; Export ▾ downloads both.';
+  const c = result.connector;
+  const kind = c?.shape === 'square' ? 'square' : 'round';
+  const pinText = c
+    ? ` ${kind === 'square' ? 'Square' : 'Round'} pin ${fmtMM(c.size)} × ${fmtMM(c.length)} mm (tip ${fmtMM(c.taper)} % narrower) on the main piece; ${kind} hole ${fmtMM(c.holeSize)} mm, ${fmtMM(c.holeDepth)} mm deep in the cut-off piece.`
+    : result.note
+      ? ' ' + result.note
+      : '';
+  $('neck-info').textContent = 'Done – the cut-off piece is now a separate model.' + pinText + ' “Pull apart” moves it away so you can see the joint; Export ▾ downloads both.';
+  if (state.neckPainting) setNeckPainting(false);
   showCutPlane();
 }
 $('neck-cut').addEventListener('click', doNeckCut);
@@ -2158,6 +2261,7 @@ function scheduleCutAnalysis() {
 }
 
 function runCutAnalysis() {
+  if (state.cutKind === 'neck') return;
   const box = $('cut-analysis');
   let result, options = null;
   try {

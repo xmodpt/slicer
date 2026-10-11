@@ -123,20 +123,32 @@ Undo/redo covers grouping too.
 Cut mode → **Around a neck** separates a part where the shape narrows – a
 head from its body, an arm at the shoulder, a handle – along a line that runs
 around the neck and follows the surface, instead of a flat cut through the
-whole model:
+whole model. Three ways to place the line:
 
-1. **Click on the neck** (where it's thinnest), or press **Find necks
-   automatically**: the model is sliced from many directions and the spots
-   where it clearly narrows are listed (e.g. *Neck 1 – Ø 12 mm, 1.3× narrower
-   than around it*).
-2. The cut line is drawn in yellow. **Follow creases** (0–100 %) moves it onto
-   folds in the surface – like where a collar or jaw meets the neck – so the
-   joint hides; 0 % keeps it on the narrowest ring. **Room to wander** sets how
-   far along the neck it may go.
-3. **Cut along the line** (or Enter): the two pieces are separated along the
-   mesh's own edges and both are closed with the *same* surface, so they fit
-   back together seamlessly. The cut-off piece becomes a model of its own;
-   **Pull apart** moves it away to show the joint.
+- **Click on the neck.** The line goes around it **through the spot you
+  click**, following the surface's creases. To cut where the neck meets the
+  clothes, click right on that line (click again to move it).
+  **Snap to collar / crease** makes it follow folds strongly and lets it
+  wander far up or down the neck – e.g. along a collar that dips at the front.
+- **Find necks automatically:** the model is sliced from many directions and
+  the spots where it clearly narrows are listed (*Neck 1 – Ø 12 mm, 1.3×
+  narrower than around it*).
+- **Paint the line:** drag over the model where the cut should go (right-drag
+  turns the view, Ctrl+drag erases). The line follows the painting and fills
+  gaps; paint all the way round, or just one side and let it guess the rest.
+
+*Follow creases* (0–100 %) and *Room to wander* fine-tune the line.
+
+**Connector:** a **round** or **square pin** on the main piece and a matching
+hole in the cut-off piece, in the middle of the cut. The pin's tip is *1 %*
+narrower than its base (*Tip narrower by*) so it slides in; the hole is
+*0.2 mm* wider (*Hole wider by*) and a bit deeper. Size and length are
+automatic (0) or set by you, and checked so the hole never breaks through.
+
+**Cut along the line** (or Enter): the pieces are separated along the mesh's
+own edges and both are closed with the same surface, so they fit back
+together seamlessly. The cut-off piece (the smaller one, by surface) becomes a
+model of its own; **Pull apart** moves it away to show the joint.
 
 ## Fix model
 
