@@ -118,6 +118,13 @@ result is always a closed, printable solid in mm, standing on the plate.
   of its own; off, it replaces it. Ctrl+Z undoes either.
 - It suits made, geometric things (candles, wheels, knobs, boxes, vases,
   brackets, chess pieces); organic shapes (animals, faces) come out simple.
+- Free AIs are often busy (a per-minute limit, the daily free allowance used
+  up, or Google's servers overloaded). The app then waits a moment and asks
+  again, tries Gemini's other free models (`gemini-flash-latest`,
+  `gemini-flash-lite-latest`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`),
+  and finally **OpenRouter's free models if you've saved an OpenRouter key
+  too** – it says which one answered. Saving both free keys is the most
+  reliable free setup.
 - Free: choose **Gemini** in AI settings with a free key from
   aistudio.google.com/apikey (no card). A request is text plus the pictures.
 

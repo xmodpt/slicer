@@ -112,7 +112,7 @@ export async function makeShape(body, settings = {}) {
     (previous ? `Previous recipe (change it as asked):\n${JSON.stringify(previous)}\n\n` : '') +
     `Object: ${String(prompt).trim() || 'the object in the picture'}`;
   const provider = settings.provider || 'anthropic';
-  let reply, replacedModel;
+  let reply, replacedModel, usedInstead;
   if (provider === 'anthropic') {
     const content = [];
     for (const img of images) content.push({ type: 'image', source: { type: 'base64', media_type: img.mime || 'image/jpeg', data: img.data } });
@@ -143,19 +143,15 @@ export async function makeShape(body, settings = {}) {
       ],
       response_format: { type: 'json_object' },
     };
-    const data = await chatCompletion(provider, settings.baseUrl, settings.apiKey, req).catch(async (err) => {
-      if (err instanceof HttpError && err.status === 400 && /response_format|json/i.test(err.message)) {
-        delete req.response_format;
-        return chatCompletion(provider, settings.baseUrl, settings.apiKey, req);
-      }
-      throw err;
-    });
+    const data = await chatWithBackups(settings, req);
     const r = data?.choices?.[0]?.message?.content;
     reply = Array.isArray(r) ? r.map((p) => p.text || '').join('') : r || '';
     replacedModel = data.replacedModel;
+    usedInstead = data.usedInstead;
   }
   const answer = parseRecipe(reply);
   if (replacedModel) answer.replacedModel = replacedModel;
+  if (usedInstead) answer.usedInstead = usedInstead;
   return answer;
 }
 
@@ -221,7 +217,8 @@ Answer with ONLY a JSON object (no other text) of this shape:
 {"model_description": "…", "items": [{"name": "…", "object_ids": [1, 2], "description": "…", "suggestion": "keep" | "remove" | "review", "reason": "…"}], "tips": ["…"]}`;
 
 // ChatGPT, Gemini, Ollama, LM Studio… – the OpenAI chat completions format.
-async function askOpenAICompatible({ system, images, text }, { provider, apiKey, model, baseUrl }) {
+async function askOpenAICompatible({ system, images, text }, settings) {
+  const { provider, model } = settings;
   const content = [];
   for (const img of images) {
     content.push({ type: 'text', text: `View: ${img.view}` });
@@ -236,19 +233,85 @@ async function askOpenAICompatible({ system, images, text }, { provider, apiKey,
     ],
     response_format: { type: 'json_object' },
   };
-  let data = await chatCompletion(provider, baseUrl, apiKey, body).catch(async (err) => {
-    // Some servers don't take response_format – ask again without it.
-    if (err instanceof HttpError && err.status === 400 && /response_format|json/i.test(err.message)) {
-      delete body.response_format;
-      return chatCompletion(provider, baseUrl, apiKey, body);
-    }
-    throw err;
-  });
+  const data = await chatWithBackups(settings, body);
   const reply = data?.choices?.[0]?.message?.content;
   const textReply = Array.isArray(reply) ? reply.map((p) => p.text || '').join('') : reply || '';
   const answer = parseAnswer(textReply);
   if (data.replacedModel) answer.replacedModel = data.replacedModel;
+  if (data.usedInstead) answer.usedInstead = data.usedInstead;
   return answer;
+}
+
+// ---------------------------------------------------------------------------
+// Busy free AIs. Free tiers are often "busy": a per-minute limit, a used-up
+// daily allowance, or the servers overloaded. Then the request is retried
+// once after a short wait, other free models of the same AI are tried, and
+// then the other free AIs that have a key saved (Gemini ↔ OpenRouter).
+
+export const FREE_MODELS = {
+  gemini: ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+  openrouter: ['openrouter/free'],
+};
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One model: asks again without response_format if the server doesn't take
+// it, and once more after a short wait if it's only busy for a moment.
+async function chatOnce(t, req) {
+  const body = { ...req, model: t.model };
+  const ask = () =>
+    chatCompletion(t.provider, t.baseUrl, t.apiKey, body).catch((err) => {
+      if (err instanceof HttpError && err.status === 400 && body.response_format && /response_format|json/i.test(err.message)) {
+        delete body.response_format;
+        return chatCompletion(t.provider, t.baseUrl, t.apiKey, body);
+      }
+      throw err;
+    });
+  try {
+    return await ask();
+  } catch (err) {
+    if (!(err instanceof HttpError) || !err.busy || err.daily || !(err.retryIn <= chatOnce.maxWait)) throw err;
+    await sleep(err.retryIn * 1000);
+    return ask();
+  }
+}
+chatOnce.maxWait = 20; // seconds
+
+export async function chatWithBackups(settings, req) {
+  const tries = [];
+  const seen = new Set();
+  const add = (s, model) => {
+    const key = s.provider + '|' + model;
+    if (!model || seen.has(key)) return;
+    seen.add(key);
+    tries.push({ ...s, model });
+  };
+  add(settings, settings.model || PROVIDERS[settings.provider]?.model);
+  for (const m of FREE_MODELS[settings.provider] || []) add(settings, m);
+  for (const o of settings.others || []) {
+    add(o, o.model);
+    for (const m of FREE_MODELS[o.provider] || []) add(o, m);
+  }
+  const failed = [];
+  for (let i = 0; i < tries.length; i++) {
+    const t = tries[i];
+    try {
+      const data = await chatOnce(t, req);
+      if (i > 0) {
+        delete data.replacedModel; // that was another model's
+        data.usedInstead = `${failed.map((f) => f.split(':')[0]).join(', ')} busy – answered by ${PROVIDERS[t.provider]?.label.replace(/ \(.*\)/, '')} · ${t.model}`;
+      }
+      return data;
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      // The chosen model itself: only "busy" moves on; a backup may also be
+      // unknown (retired) or not allowed with that key.
+      if (i === 0 && !err.busy) throw err;
+      failed.push(`${t.model}: ${err.reason || err.message}`);
+    }
+  }
+  const tip = settings.others?.length ? '' : ' Tip: also save a free OpenRouter key (AI settings → OpenRouter) – it is used when Gemini is busy.';
+  throw new HttpError(429, `All free AIs are busy right now – ${failed.join('; ')}. Try again in a minute.${tip}`);
 }
 
 async function chatCompletion(provider, baseUrl, apiKey, body, retired = false) {
@@ -281,7 +344,16 @@ async function chatCompletion(provider, baseUrl, apiKey, body, retired = false) 
       return { ...data2, replacedModel: newer[1] };
     }
     if (res.status === 404) throw new HttpError(400, `Model or address not found – check AI settings. (${msg})`);
-    if (res.status === 429) throw new HttpError(429, `AI is busy or out of credit (rate limited). (${msg})`);
+    if (res.status === 429 || res.status === 503 || res.status === 529 || (res.status >= 500 && /overload|unavailable|try again/i.test(String(msg)))) {
+      const text = String(raw);
+      const daily = /per ?day|PerDay|daily|limit: ?0\b|quota exceeded for metric.*free_tier_requests.*day/i.test(text);
+      const noFree = /limit: ?0\b/.test(text);
+      const wait = /retry in ([\d.]+)\s*s|"retryDelay":\s*"(\d+)/i.exec(text);
+      const reason = noFree ? 'no free use of this model on your key' : daily ? 'free daily limit used up' : res.status === 429 ? 'too many requests – busy' : 'servers overloaded';
+      const err = new HttpError(429, `${PROVIDERS[provider]?.label || provider} is busy: ${reason}. (${String(msg).slice(0, 200)})`);
+      Object.assign(err, { busy: true, daily, reason, retryIn: wait ? +(wait[1] || wait[2]) : res.status === 429 ? 0 : 5 });
+      throw err;
+    }
     throw new HttpError(res.status === 400 ? 400 : 502, `AI request failed (${res.status}): ${msg}`);
   }
   return data;
@@ -356,9 +428,9 @@ function saveSettings(file, data) {
 }
 
 // The settings to use: saved ones, keys from the environment as a fallback.
-export function resolveSettings(file, envKey = () => undefined) {
+export function resolveSettings(file, envKey = () => undefined, only = null) {
   const saved = loadSettings(file);
-  const provider = PROVIDERS[saved.provider] ? saved.provider : 'anthropic';
+  const provider = only || (PROVIDERS[saved.provider] ? saved.provider : 'anthropic');
   const p = PROVIDERS[provider];
   const apiKey = saved.keys?.[provider] || (provider === 'anthropic' ? envKey() : '') || (p.env ? process.env[p.env] : '') || '';
   return { provider, model: saved.models?.[provider] || p.model, baseUrl: saved.baseUrls?.[provider] || p.baseUrl || '', apiKey };
@@ -420,6 +492,11 @@ export function aiMiddleware(getApiKey = () => undefined, { settingsFile = 'ai-s
       }
       const settings = resolveSettings(settingsFile, getApiKey);
       if (!settings.apiKey && settings.provider !== 'local') throw new HttpError(400, NO_KEY(settings.provider));
+      // The other free AIs with a key: used when the chosen one is busy.
+      settings.others = Object.keys(FREE_MODELS)
+        .filter((id) => id !== settings.provider)
+        .map((id) => resolveSettings(settingsFile, getApiKey, id))
+        .filter((o) => o.apiKey);
       // Remember a replacement for a retired model, so it's asked directly next time.
       const keepModel = (result) => {
         if (!result.replacedModel) return result;

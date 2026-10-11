@@ -1109,7 +1109,7 @@ async function askAI() {
     if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
     if (state.seg !== seg) return; // model changed while waiting
     state.ai = data;
-    $('ai-summary').textContent = data.model_description + (data.tips.length ? ' ' + data.tips.join(' ') : '');
+    $('ai-summary').textContent = data.model_description + (data.tips.length ? ' ' + data.tips.join(' ') : '') + (data.usedInstead ? ` (${data.usedInstead})` : '');
     $('ai-select-remove').hidden = !data.items.some((i) => i.suggestion === 'remove');
     renderObjectList();
   } catch (err) {
@@ -1353,6 +1353,7 @@ async function makeObject() {
     $('make-refine').checked = true;
     wait.remove();
     makeLog(`✓ ${escapeHTML(data.name)} – ${escapeHTML(data.description)} (${(soup.length / 9).toLocaleString()} triangles, closed)`, 'ok');
+    if (data.usedInstead) makeLog(escapeHTML(data.usedInstead), 'muted');
     $('make-prompt').value = '';
     make.pics = [];
     renderPictures();
