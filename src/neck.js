@@ -260,6 +260,83 @@ function neckiness(mesh, neck, eps) {
   return ratio;
 }
 
+// The head's neck on an upright figure: from the top of the model (the head)
+// down, slice by slice, following the same shape: the rings grow through the
+// head, shrink to the neck, and grow again at the shoulders. The narrowest ring
+// between is the neck. Returns a neck (refined like a click there) or null.
+export function findHeadNeck(mesh) {
+  const P = mesh.positions, I = mesh.indices, T = mesh.triangleCount;
+  if (!T) return null;
+  const { min, max } = mesh.bounds();
+  const height = max[2] - min[2];
+  if (!(height > 0)) return null;
+  const eps = modelSize(mesh) * 1e-7;
+  const up = [0, 0, 1];
+  const zlo = new Float32Array(T), zhi = new Float32Array(T);
+  for (let t = 0; t < T; t++) {
+    const a = P[I[t * 3] * 3 + 2], b = P[I[t * 3 + 1] * 3 + 2], c = P[I[t * 3 + 2] * 3 + 2];
+    zlo[t] = Math.min(a, b, c);
+    zhi[t] = Math.max(a, b, c);
+  }
+  // The topmost point: where the head is.
+  let top = 0;
+  for (let v = 1; v < mesh.vertexCount; v++) if (P[v * 3 + 2] > P[top * 3 + 2]) top = v;
+  let prev = [P[top * 3], P[top * 3 + 1]];
+  let prevR = Infinity;
+  const step = height / 240;
+  const rings = [];
+  for (let k = 2; k * step < height * 0.6; k++) {
+    const z = max[2] - k * step;
+    const tris = [];
+    for (let t = 0; t < T; t++) if (zlo[t] < z && zhi[t] > z) tris.push(t);
+    let best = null, bestD = Infinity;
+    for (const loop of slice(mesh, tris, up, z, eps)) {
+      if (!loop.closed || loop.pts.length < 3) continue;
+      const c = centroid(loop.pts);
+      const d = Math.hypot(c[0] - prev[0], c[1] - prev[1]);
+      if (d < bestD) {
+        bestD = d;
+        best = { c, per: perimeter(loop.pts), pt: loop.pts[0], z };
+      }
+    }
+    // Lost the shape (or jumped to another one): stop.
+    if (!best || (Number.isFinite(prevR) && bestD > Math.max(prevR, best.per / (2 * Math.PI)) * 1.5)) break;
+    rings.push(best);
+    prev = [best.c[0], best.c[1]];
+    prevR = best.per / (2 * Math.PI);
+  }
+  if (rings.length < 6) return null;
+  // Smooth the perimeters a little (scans are bumpy), then find the first
+  // clear narrowing after the head's widest point.
+  const per = rings.map((_, i) => {
+    let s2 = 0, n2 = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(rings.length - 1, i + 2); j++) (s2 += rings[j].per), n2++;
+    return s2 / n2;
+  });
+  let widest = 0, pick = -1;
+  for (let i = 1; i < per.length - 1; i++) {
+    widest = Math.max(widest, per[i - 1]);
+    if (per[i] > per[i - 1] || per[i] > per[i + 1]) continue;
+    if (widest < per[i] * 1.12) continue;
+    // …and the shape widens again below (shoulders).
+    let below = 0;
+    for (let j = i + 1; j < per.length; j++) below = Math.max(below, per[j]);
+    if (below < per[i] * 1.12) continue;
+    pick = i;
+    break;
+  }
+  if (pick < 0) return null;
+  const ring = rings[pick];
+  const neck = findNeckAt(mesh, ring.pt) || null;
+  const close = neck && Math.hypot(...sub(neck.center, ring.c)) < (ring.per / (2 * Math.PI)) * 2;
+  const result = close
+    ? neck
+    : { normal: up, offset: ring.z, center: ring.c, perimeter: ring.per, radius: ring.per / (2 * Math.PI) };
+  result.head = true;
+  result.ratio = Math.min(widest, Math.max(...per.slice(pick + 1))) / per[pick];
+  return result;
+}
+
 // Necks anywhere on the model: the model is sliced in many parallel planes
 // from several directions; the rings are followed from slice to slice like
 // tubes, and where a tube gets clearly narrower than on both sides there is a
@@ -337,9 +414,12 @@ export function findNecks(mesh, { slices = 48, minRatio = 1.15, maxTriangles = 3
       }
     }
   }
-  // Refine each like a click on the ring, best first; drop duplicates.
+  // Refine each like a click on the ring, best first; drop duplicates. The
+  // head's neck (from the top down) comes first.
   candidates.sort((a, b) => b.ratio - a.ratio);
   const found = [];
+  const head = findHeadNeck(mesh);
+  if (head) found.push(head);
   for (const cand of candidates.slice(0, 40)) {
     if (found.some((f) => Math.hypot(...sub(f.center, cand.c)) < f.radius * 1.5)) continue;
     const neck = findNeckAt(mesh, cand.pt, { dirCount: 60 });
@@ -351,7 +431,7 @@ export function findNecks(mesh, { slices = 48, minRatio = 1.15, maxTriangles = 3
     found.push(neck);
     if (found.length >= 8) break;
   }
-  return found.sort((a, b) => b.ratio - a.ratio);
+  return found.sort((a, b) => (b.head ? 1 : 0) - (a.head ? 1 : 0) || b.ratio - a.ratio);
 }
 
 // Which way along the neck's axis the body is (the bigger side): +1 or −1,

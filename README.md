@@ -132,9 +132,10 @@ whole model. Three ways to place the line:
   finds which side the body is on, searches far that way (hardly towards the
   head), keeps to the neck's own surface and follows the fold where the
   collar presses on the neck – also when the collar dips at the front.
-- **Find necks automatically:** the model is sliced from many directions and
-  the spots where it clearly narrows are listed (*Neck 1 – Ø 12 mm, 1.3×
-  narrower than around it*).
+- **Find necks automatically:** the head's neck comes first (*Neck (head)*):
+  found from the top of the model down – through the head, to where it
+  narrows, before the shoulders. Other narrow spots (arms, legs, sleeves)
+  follow as *Narrow part*, found by slicing the model from many directions.
 - **Paint the line:** drag over the model where the cut should go (right-drag
   turns the view, Ctrl+drag erases). The line follows the painting and fills
   gaps; paint all the way round, or just one side and let it guess the rest.

@@ -2091,8 +2091,10 @@ $('neck-find').addEventListener('click', () => {
       const b = document.createElement('button');
       b.className = 'cut-option';
       b.innerHTML = '<span class="dot"></span><span class="label"></span><span class="what"></span>';
-      b.querySelector('.label').textContent = `Neck ${i + 1}`;
-      b.querySelector('.what').textContent = `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it`;
+      b.querySelector('.label').textContent = neck.head ? 'Neck (head)' : 'Narrow part';
+      b.querySelector('.what').textContent = neck.head
+        ? `Ø ${fmtMM(2 * neck.radius)} mm · below the head`
+        : `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it (an arm, a leg…)`;
       b.addEventListener('click', () => {
         for (const o of list.children) o.classList.toggle('active', o === b);
         chooseNeck(neck, -1);

@@ -258,3 +258,24 @@ test('scanned bust: collar mode finds the neck–collar joint, and the smooth li
   for (const piece of ps) assert.ok(consistentlyClosed(piece));
   assert.ok(Math.abs(volume(m) - before) < before * 0.01);
 });
+
+test('the head’s neck is found first, even when an arm narrows more', () => {
+  const { m: bust } = scanBust();
+  // An "arm" hanging beside the body: narrows from r 5 to r 2.5 (deeper than the neck).
+  const p = [[0, 0]];
+  for (let z = 1; z <= 40; z += 1) p.push([5 - 2.5 * Math.exp(-(((z - 20) / 4) ** 2)), z]);
+  p.push([0, 41]);
+  const arm = lathe(p, 48);
+  const shifted = Float32Array.from(arm.positions, (x, i) => (i % 3 === 0 ? x + 40 : x));
+  const pos = new Float32Array(bust.positions.length + shifted.length);
+  pos.set(bust.positions);
+  pos.set(shifted, bust.positions.length);
+  const idx = new Uint32Array(bust.indices.length + arm.indices.length);
+  idx.set(bust.indices);
+  idx.set(arm.indices.map((v) => v + bust.vertexCount), bust.indices.length);
+  const m = new EditableMesh(pos, idx);
+  const necks = findNecks(m);
+  assert.ok(necks.length >= 1);
+  assert.ok(necks[0].head, 'the first one is the head’s neck');
+  assert.ok(Math.abs(necks[0].center[0]) < 3 && necks[0].center[2] > 40 && necks[0].center[2] < 56, `at ${necks[0].center.map((x) => x.toFixed(1))}`);
+});
