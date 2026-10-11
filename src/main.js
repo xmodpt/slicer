@@ -1473,7 +1473,7 @@ async function growTreeFromPanel(newSeed) {
     tree: {
       height: v('height'), trunks: v('trunks'), levels: v('levels'), branching: v('branching'), spread: v('spread'),
       gnarl: v('gnarl') / 100, thickness: v('thickness') / 100, lean: v('lean'), roots: v('roots'), bark: v('bark') / 100,
-      leaves: $('tg-leaves').value, minTwig: v('minTwig'), seed: treeSeed,
+      leaves: $('tg-leaves').value, minTwig: v('minTwig'), detail: $('tg-detail').value, seed: treeSeed,
     },
   };
   make.busy = true;

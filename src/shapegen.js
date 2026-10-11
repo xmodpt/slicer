@@ -34,6 +34,7 @@ function treeOptions(a) {
   n('gnarl', 0, 1.5); n('lean', -45, 45); n('thickness', 0.3, 3); n('roots', 0, 12); n('bark', 0, 1.5);
   n('leafSize', 0, 100); n('minTwig', 0.3, 5); n('seed', 0, 1e9);
   if (['none', 'clusters', 'crown'].includes(a.leaves)) o.leaves = a.leaves;
+  if (['draft', 'normal', 'fine'].includes(a.detail)) o.detail = a.detail;
   else if (a.leaves === true) o.leaves = 'clusters';
   return { ...TREE_DEFAULTS, ...o };
 }

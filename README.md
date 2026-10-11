@@ -143,7 +143,13 @@ solid.
 
 - **✨ AI → Make a new object… → 🌳 Tree generator**: height, trunks, branch
   levels, branches, spread, gnarled, thickness, lean, roots, bark, leaves
-  (none / sprays / dense) and the thinnest twig (keep it ≥ 0.8 mm for FDM).
+  (none / sprays / dense), the thinnest twig (keep it ≥ 0.8 mm for FDM) and
+  the detail (draft / normal / fine). Branches follow smooth curves with
+  edges about 0.45 mm long (normal), the bark is cut in with noise – ridges
+  running along the wood, split by cracks, up to 0.9 mm deep – the trunk
+  flares at the ground, and leaves are pointed blades with a raised vein.
+  A tree is 100–500 thousand triangles and takes a few seconds (leafy ones
+  longer).
   **Grow tree**, or **🎲 Another one** for a different tree with the same
   settings (with *Change the last one* ticked it replaces the last tree).
 - Through the AI: “a gnarly bare tree”, “a bonsai with leaves”, “three

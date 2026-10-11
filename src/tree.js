@@ -20,6 +20,7 @@ export const TREE_DEFAULTS = {
   leaves: 'none', // 'none' | 'clusters' (leaf sprays on the twigs) | 'crown' (dense)
   leafSize: 0, // mm, 0 = automatic
   minTwig: 0.9, // mm, thinnest twig radius (printable)
+  detail: 'normal', // 'draft' | 'normal' | 'fine' – mesh resolution
   seed: 1,
 };
 
@@ -80,6 +81,11 @@ export function growTree(options = {}) {
       pts.push(add(pts[i - 1], mul(dir, length / n)));
       radii.push(r0 + (r1 - r0) * (i / n));
     }
+    // The trunk flares out where it meets the ground.
+    if (isTrunk) for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      if (t < 0.22) radii[i] *= 1 + 0.55 * (1 - t / 0.22) ** 2;
+    }
     branches.push({ pts, radii, level });
     if (level >= o.levels || r1 <= minR * 1.05) {
       // Twigs end in a point, not a stub.
@@ -104,7 +110,7 @@ export function growTree(options = {}) {
     }
     // The fork at the end: two (sometimes three) branches carry on, from a
     // smooth swelling (no steps where they meet).
-    knots.push({ p: pts[n], r: r1 * 1.05 });
+    knots.push({ p: pts[n], r: r1 });
     const forks = rand() < 0.25 ? 3 : 2;
     const fd = dir;
     const base = anyPerp(fd);
@@ -167,49 +173,163 @@ export function growTree(options = {}) {
   return { branches, roots, tips, knots, trunkR, options: o, H };
 }
 
-// Swept tube with bark: rings along the polyline (frames carried along so
-// they don't twist), closed at both ends. Returns { vert: Float32Array,
-// tri: Uint32Array } – a closed, consistently wound surface.
-function tubeMesh({ pts, radii }, { bark, seed, minSeg = 6, maxSeg = 22, edge = 1.2 }) {
+// ---------------------------------------------------------------------------
+// Surface detail
+
+// Smooth 3D gradient noise (Perlin), -1..1, seeded.
+function makeNoise(seed) {
+  const rand = rng(seed + 7);
+  const perm = new Uint8Array(512);
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const G = [[1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1], [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]];
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  return (x, y, z) => {
+    const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+    x -= X; y -= Y; z -= Z;
+    const xi = X & 255, yi = Y & 255, zi = Z & 255;
+    const u = fade(x), v = fade(y), w = fade(z);
+    const g = (h, dx, dy, dz) => {
+      const q = G[h % 12];
+      return q[0] * dx + q[1] * dy + q[2] * dz;
+    };
+    const a = perm[xi] + yi, aa = perm[a] + zi, ab = perm[a + 1] + zi;
+    const b = perm[xi + 1] + yi, ba = perm[b] + zi, bb = perm[b + 1] + zi;
+    const l = (t, a1, b1) => a1 + t * (b1 - a1);
+    return l(w,
+      l(v, l(u, g(perm[aa], x, y, z), g(perm[ba], x - 1, y, z)), l(u, g(perm[ab], x, y - 1, z), g(perm[bb], x - 1, y - 1, z))),
+      l(v, l(u, g(perm[aa + 1], x, y, z - 1), g(perm[ba + 1], x - 1, y, z - 1)), l(u, g(perm[ab + 1], x, y - 1, z - 1), g(perm[bb + 1], x - 1, y - 1, z - 1))));
+  };
+}
+
+// Bark height at a point on a branch, 0 (top of a ridge) .. 1 (deepest
+// crack): ridges running along the branch that split and merge, broken by
+// short cross cracks – like oak or olive bark.
+function barkAt(noise, u, v, w) {
+  // u, v: round the branch (mm, as a circle so it wraps); w: along it (mm).
+  const ridge = 1 - Math.abs(noise(u * 0.9, v * 0.9, w * 0.18)); // long ridges
+  const fine = 1 - Math.abs(noise(u * 2.2 + 17, v * 2.2, w * 0.5));
+  const cross = Math.max(0, noise(u * 0.6 + 40, v * 0.6, w * 1.4)) * 0.6; // cross cracks
+  const h = 0.62 * ridge * ridge + 0.38 * fine - cross;
+  return Math.min(1, Math.max(0, 1 - h));
+}
+
+// Catmull-Rom: a smooth curve through the branch's points, sampled about
+// every `step` mm, with its radii.
+function smoothPath(pts, radii, step) {
   const n = pts.length;
-  const seg = Math.max(minSeg, Math.min(maxSeg, Math.round((2 * Math.PI * radii[0]) / edge)));
+  const out = [], rad = [];
+  for (let i = 0; i + 1 < n; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
+    const segLen = len(sub(p2, p1));
+    const k = Math.max(1, Math.ceil(segLen / step));
+    for (let j = 0; j < k; j++) {
+      const t = j / k, t2 = t * t, t3 = t2 * t;
+      const c = (a, b, cc, d) => 0.5 * (2 * b + (-a + cc) * t + (2 * a - 5 * b + 4 * cc - d) * t2 + (-a + 3 * b - 3 * cc + d) * t3);
+      out.push([c(p0[0], p1[0], p2[0], p3[0]), c(p0[1], p1[1], p2[1], p3[1]), c(p0[2], p1[2], p2[2], p3[2])]);
+      rad.push(radii[i] + (radii[i + 1] - radii[i]) * t);
+    }
+  }
+  out.push(pts[n - 1]);
+  rad.push(radii[n - 1]);
+  return { pts: out, radii: rad };
+}
+
+// Swept tube with bark: rings along the smoothed branch (frames carried along
+// so they don't twist), closed at both ends with a rounded tip. Returns
+// { vert, tri } – a closed, consistently wound surface.
+function tubeMesh(branch, { bark, noise, edge = 0.4, maxSeg = 96 }) {
+  const { pts, radii } = smoothPath(branch.pts, branch.radii, edge * 1.3);
+  const n = pts.length;
+  const seg = Math.max(8, Math.min(maxSeg, Math.round((2 * Math.PI * radii[0]) / edge)));
   const T = pts.map((p, i) => norm(sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)])));
   let N = anyPerp(T[0]);
   const vert = [];
-  const phase = [seed * 1.7, seed * 3.1, seed * 5.3];
   let s = 0;
   for (let i = 0; i < n; i++) {
     if (i > 0) {
-      // Parallel transport of the normal.
-      N = norm(sub(N, mul(T[i], dot(N, T[i]))));
+      N = norm(sub(N, mul(T[i], dot(N, T[i])))); // parallel transport
       s += len(sub(pts[i], pts[i - 1]));
     }
     const B = cross(T[i], N);
+    const r0 = radii[i];
+    // Grooves up to ~0.6 mm deep, less on thin twigs.
+    const depth = bark * Math.min(0.9, r0 * 0.3);
     for (let k = 0; k < seg; k++) {
       const a = (k / seg) * Math.PI * 2;
-      // Bark: grooves running along the branch, wandering slowly.
-      const w = s / Math.max(1, radii[0] * 6);
-      const g = Math.sin(5 * a + phase[0] + w) * 0.5 + Math.sin(9 * a + phase[1] - w * 1.3) * 0.3 + Math.sin(14 * a + phase[2] + w * 0.7) * 0.2;
-      const r = radii[i] * (1 + bark * 0.2 * g);
-      const off = add(mul(N, Math.cos(a) * r), mul(B, Math.sin(a) * r));
-      vert.push(...add(pts[i], off));
+      const ca = Math.cos(a), sa = Math.sin(a);
+      // Noise on the branch's own surface: round (as a circle of the base
+      // radius, so it wraps) and along.
+      const r = r0 - (depth > 0 ? depth * barkAt(noise, ca * radii[0], sa * radii[0], s + branch.offset) : 0);
+      vert.push(pts[i][0] + (N[0] * ca + B[0] * sa) * r, pts[i][1] + (N[1] * ca + B[1] * sa) * r, pts[i][2] + (N[2] * ca + B[2] * sa) * r);
     }
   }
   const base = vert.length / 3;
   vert.push(...sub(pts[0], mul(T[0], radii[0] * 0.2))); // bottom centre
-  vert.push(...add(pts[n - 1], mul(T[n - 1], radii[n - 1] * 0.8))); // rounded tip
-  const tri = [];
-  for (let i = 0; i + 1 < n; i++) {
+  // Rounded tip: two shrinking rings, then the point.
+  const tipRings = 2;
+  for (let q = 1; q <= tipRings; q++) {
+    const f = q / (tipRings + 1);
+    const c = add(pts[n - 1], mul(T[n - 1], radii[n - 1] * 0.7 * f));
+    const rr = radii[n - 1] * Math.cos((f * Math.PI) / 2);
+    const Bn = cross(T[n - 1], N);
     for (let k = 0; k < seg; k++) {
-      const a = i * seg + k, b = i * seg + ((k + 1) % seg), c = (i + 1) * seg + ((k + 1) % seg), d = (i + 1) * seg + k;
+      const a = (k / seg) * Math.PI * 2;
+      vert.push(...add(c, add(mul(N, Math.cos(a) * rr), mul(Bn, Math.sin(a) * rr))));
+    }
+  }
+  const apex = vert.length / 3;
+  vert.push(...add(pts[n - 1], mul(T[n - 1], radii[n - 1] * 0.75)));
+  const tri = [];
+  const ring = (i) => (i < n ? i * seg : base + 1 + (i - n) * seg);
+  for (let i = 0; i + 1 < n + tipRings; i++) {
+    const A = ring(i), Bq = ring(i + 1);
+    for (let k = 0; k < seg; k++) {
+      const a = A + k, b = A + ((k + 1) % seg), c = Bq + ((k + 1) % seg), d = Bq + k;
       tri.push(a, b, c, a, c, d);
     }
   }
+  const lastRing = ring(n + tipRings - 1);
   for (let k = 0; k < seg; k++) {
     tri.push(base, (k + 1) % seg, k); // bottom cap
-    const last = (n - 1) * seg;
-    tri.push(base + 1, last + k, last + ((k + 1) % seg)); // tip
+    tri.push(apex, lastRing + k, lastRing + ((k + 1) % seg)); // tip
   }
+  return { vert: new Float32Array(vert), tri: new Uint32Array(tri) };
+}
+
+// A leaf blade: pointed at both ends, widest a third of the way, thicker
+// along the middle vein. Lies along +X, flat in XY, stalk end at the origin.
+function leafMesh(length, width, thick, { rows = 10, around = 10 } = {}) {
+  const vert = [0, 0, 0];
+  for (let i = 1; i < rows; i++) {
+    const t = i / rows;
+    const w = (width / 2) * Math.sin(Math.PI * Math.pow(t, 0.75)) ** 0.9;
+    const h = (thick / 2) * Math.max(0.35, Math.sin(Math.PI * t));
+    for (let k = 0; k < around; k++) {
+      const a = (k / around) * Math.PI * 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      // Lens-shaped section, a ridge (the vein) along the top.
+      const vein = sa > 0 ? 1 + 0.5 * Math.max(0, 1 - Math.abs(ca) * 4) : 1;
+      vert.push(t * length, ca * w, sa * h * vein + Math.abs(ca) * w * 0.12);
+    }
+  }
+  vert.push(length, 0, 0);
+  const tri = [];
+  const last = 1 + (rows - 2) * around;
+  for (let k = 0; k < around; k++) tri.push(0, 1 + ((k + 1) % around), 1 + k);
+  for (let i = 0; i < rows - 2; i++) {
+    const A = 1 + i * around, B = A + around;
+    for (let k = 0; k < around; k++) {
+      const a = A + k, b = A + ((k + 1) % around), c = B + ((k + 1) % around), d = B + k;
+      tri.push(a, b, c, a, c, d);
+    }
+  }
+  const tip = vert.length / 3 - 1;
+  for (let k = 0; k < around; k++) tri.push(tip, last + k, last + ((k + 1) % around));
   return { vert: new Float32Array(vert), tri: new Uint32Array(tri) };
 }
 
@@ -221,6 +341,9 @@ export function buildTree(wasm, options = {}) {
   const bark = Math.max(0, Math.min(1.5, +o.bark));
   const parts = [];
   const made = [];
+  // Detail: how long the mesh's edges are (mm).
+  const edge = { draft: 0.9, normal: 0.45, fine: 0.3 }[o.detail] || 0.45;
+  const noise = makeNoise(o.seed);
   const solidOf = (mesh) => {
     const m = new Mesh({ numProp: 3, vertProperties: mesh.vert, triVerts: mesh.tri });
     m.merge();
@@ -234,17 +357,19 @@ export function buildTree(wasm, options = {}) {
     const all = [...tree.roots, ...tree.branches];
     all.forEach((b, i) => {
       try {
-        const s = solidOf(tubeMesh(b, { bark: b.level > 3 ? bark * 0.4 : bark, seed: i + o.seed, edge: Math.max(0.6, tree.trunkR / 4) }));
+        b.offset = i * 37.3; // each branch its own stretch of bark
+        const s = solidOf(tubeMesh(b, { bark, noise, edge: b.radii[0] < 1.5 ? edge * 0.8 : edge }));
         if (s) parts.push(s);
       } catch {
         // a tube that folds over itself is left out
       }
     });
     // Swellings where branches fork.
-    const knot = Manifold.sphere(1, 16);
+    const knot = Manifold.sphere(1, 40);
     made.push(knot);
     for (const kn of tree.knots) {
-      const s = knot.scale(kn.r).translate(kn.p);
+      // Just under the bark, so the fork is filled but no smooth ball shows.
+      const s = knot.scale(Math.max(0.3, kn.r - bark * Math.min(0.9, kn.r * 0.3) * 0.9)).translate(kn.p);
       made.push(s);
       parts.push(s);
     }
@@ -254,8 +379,8 @@ export function buildTree(wasm, options = {}) {
       const size = +o.leafSize || Math.max(3, tree.H * 0.05);
       const thick = Math.max(0.8, size * 0.08);
       const perTip = o.leaves === 'crown' ? 9 : 6;
-      const leaf = Manifold.sphere(1, 10);
-      made.push(leaf);
+      const leaf = solidOf(leafMesh(1, 0.4, thick / size, { rows: o.detail === 'draft' ? 6 : o.detail === 'fine' ? 12 : 8, around: o.detail === 'draft' ? 6 : o.detail === 'fine' ? 10 : 8 }));
+      if (!leaf) throw new Error('leaf');
       const tips = tree.tips.slice(0, 700);
       for (const tip of tips) {
         // A spray: pairs of leaves along the last part of the twig, angled
@@ -277,13 +402,13 @@ export function buildTree(wasm, options = {}) {
             const s = size * (0.8 + rand() * 0.35) * (j === pairs ? 1.1 : 1);
             const ang = side === 0 ? 0 : (55 + rand() * 15) * (Math.PI / 180);
             const out = norm(add(mul(d, Math.cos(ang)), mul(across, side * Math.sin(ang))));
-            // Its stalk end touches the twig.
-            const centre = add(at, mul(out, s * 0.42));
+            // Its stalk end sits in the twig.
+            const centre = add(at, mul(out, -Math.min(0.6, s * 0.08)));
             const x = out;
             let z = norm(cross(out, across));
             if (z[2] < 0) z = mul(z, -1);
             const y = cross(z, x);
-            const mat = [...mul(x, s * 0.5), 0, ...mul(y, s * 0.2), 0, ...mul(z, thick / 2), 0, ...centre, 1];
+            const mat = [...mul(x, s), 0, ...mul(y, s), 0, ...mul(z, s), 0, ...centre, 1];
             const blade = leaf.transform(mat);
             made.push(blade);
             parts.push(blade);
