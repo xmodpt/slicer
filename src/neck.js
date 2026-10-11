@@ -180,6 +180,24 @@ function surfaceNormalNear(mesh, tris, point, radius) {
   return l > 0 ? sum.map((x) => x / l) : null;
 }
 
+function pointInPolygon2([x, y], pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonArea2(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p[0] * q[1] - q[0] * p[1];
+  }
+  return a / 2;
+}
+
 function modelSize(mesh) {
   const { min, max } = mesh.bounds();
   return Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) || 1;
@@ -287,18 +305,28 @@ export function findHeadNeck(mesh) {
   const rings = [];
   for (let k = 2; k * step < height * 0.6; k++) {
     const z = max[2] - k * step;
+    // Triangles touching the height (a slice exactly at a row of points must
+    // still see the triangles around it).
     const tris = [];
-    for (let t = 0; t < T; t++) if (zlo[t] < z && zhi[t] > z) tris.push(t);
-    let best = null, bestD = Infinity;
+    for (let t = 0; t < T; t++) if (zlo[t] <= z + eps && zhi[t] >= z - eps) tris.push(t);
+    // The ring around the shape we follow: the biggest one around the last
+    // centre (inner surfaces and overlapping pieces lie inside it), else the
+    // nearest.
+    let best = null, bestD = Infinity, bestArea = -1;
     for (const loop of slice(mesh, tris, up, z, eps)) {
       if (!loop.closed || loop.pts.length < 3) continue;
       const c = centroid(loop.pts);
       const d = Math.hypot(c[0] - prev[0], c[1] - prev[1]);
-      if (d < bestD) {
+      const around = pointInPolygon2(prev, loop.pts);
+      const area = Math.abs(polygonArea2(loop.pts));
+      const better = around ? bestArea < 0 || area > bestArea : bestArea < 0 && d < bestD;
+      if (better) {
+        if (around) bestArea = area;
         bestD = d;
         best = { c, per: perimeter(loop.pts), pt: loop.pts[0], z };
       }
     }
+    if (best && bestArea >= 0) bestD = 0;
     // Lost the shape (or jumped to another one): stop.
     if (!best || (Number.isFinite(prevR) && bestD > Math.max(prevR, best.per / (2 * Math.PI)) * 1.5)) break;
     rings.push(best);
@@ -328,7 +356,16 @@ export function findHeadNeck(mesh) {
   if (pick < 0) return null;
   const ring = rings[pick];
   const neck = findNeckAt(mesh, ring.pt) || null;
-  const close = neck && Math.hypot(...sub(neck.center, ring.c)) < (ring.per / (2 * Math.PI)) * 2;
+  const ringR = ring.per / (2 * Math.PI);
+  // Use the refined ring only if it is the same neck: about as big, around the
+  // same middle, and roughly upright.
+  const close =
+    neck &&
+    Math.hypot(neck.center[0] - ring.c[0], neck.center[1] - ring.c[1]) < ringR &&
+    Math.abs(neck.center[2] - ring.z) < ringR * 2.5 &&
+    neck.radius > ringR * 0.6 &&
+    neck.radius < ringR * 1.6 &&
+    Math.abs(neck.normal[2]) > 0.6;
   const result = close
     ? neck
     : { normal: up, offset: ring.z, center: ring.c, perimeter: ring.per, radius: ring.per / (2 * Math.PI) };
@@ -372,7 +409,7 @@ export function findNecks(mesh, { slices = 48, minRatio = 1.15, maxTriangles = 3
     for (let k = 1; k <= slices; k++) {
       const d = mn + k * step;
       const tris = [];
-      for (let t = 0; t < T; t++) if (lo[t] < d && hi[t] > d) tris.push(t);
+      for (let t = 0; t < T; t++) if (lo[t] <= d + eps && hi[t] >= d - eps) tris.push(t);
       const rings = slice(mesh, tris, n, d, eps)
         .filter((l) => l.closed && l.pts.length >= 3)
         .map((l) => ({ c: centroid(l.pts), per: perimeter(l.pts), d, pt: l.pts[0] }));

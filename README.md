@@ -118,6 +118,21 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
 
 Undo/redo covers grouping too.
 
+## Body parts
+
+For a standing figure (head on top, Z up), Edit mode → **Find body parts**
+splits it into **Head, Torso, two Arms and two Legs**. The figure is sliced
+into many horizontal levels; each level cuts it into rings, and rings that
+line up from level to level form tubes: the head is what's above the neck,
+the legs rise from the floor until they join, the arms hang beside the torso,
+and the rest is the torso. The parts are coloured and listed in the Objects
+tree – click one to select it, hide it, or export it. Left/right are as seen
+in the *Front* view.
+
+The joints – **neck, shoulders, hips** – are listed first under Cut →
+Around a neck → *Find necks automatically*, so any part can be cut off there
+with a clean line and a pin.
+
 ## Neck cut
 
 Cut mode → **Around a neck** separates a part where the shape narrows – a
@@ -383,5 +398,6 @@ holes, parts and whether the mesh is watertight.
 - `src/main.js` – UI, tools, undo/redo.
 - `src/floating.js` – finds parts floating in mid-air.
 - `src/neck.js` – finds necks and cuts around them along the surface.
+- `src/body.js` – finds the body parts (head, torso, arms, legs) of a standing figure.
 - `desktop/` – the Windows app (Electron): `main.cjs` serves the built app
   from a local web server in its own window.

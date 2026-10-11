@@ -8,6 +8,7 @@ import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
+import { findBodyParts } from './body.js';
 import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting, smoothLine, splitAlongLine } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
@@ -854,7 +855,8 @@ function renderObjectList() {
       addTreeRow(list, {
         key: pkey,
         depth: 1,
-        name: partName(i),
+        // A part holding exactly one named object (AI or body parts) takes its name.
+        name: state.partNames[i] || (rows.length === 1 && state.ai ? rows[0].name : partName(i)),
         rename: (v) => (state.partNames[i] = v),
         meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
         badge: state.floatingFirst?.has(part.faces[0]) ? 'floating' : null,
@@ -1130,6 +1132,61 @@ async function askAI() {
 }
 
 $('ai-run').addEventListener('click', askAI);
+
+// ---------------------------------------------------------------------------
+// Body parts of a standing figure (see body.js): shown as named objects in
+// the tree (Edit mode), like the AI's names.
+
+const BODY_COLORS = [0xf2c58f, 0x8fb8e8, 0x7bd88f, 0x5fbf6f, 0xd78fe8, 0xb77fd0];
+
+function showBodyParts(body) {
+  const T = state.mesh.triangleCount;
+  const objectOf = new Int32Array(T);
+  const offsets = new Uint32Array(body.parts.length + 1);
+  const all = new Uint32Array(T);
+  let o = 0;
+  body.parts.forEach((part, i) => {
+    offsets[i] = o;
+    for (const t of part.faces) {
+      objectOf[t] = i;
+      all[o++] = t;
+    }
+  });
+  offsets[body.parts.length] = o;
+  state.seg = {
+    objectOf,
+    objects: body.parts.map((p, i) => ({ id: i, triangles: p.faces.length, share: p.faces.length / T })),
+    facesOf: (id) => all.subarray(offsets[id], offsets[id + 1]),
+  };
+  state.objectColors = body.parts.map((p) => new THREE.Color(BODY_COLORS[p.id % BODY_COLORS.length]));
+  state.ai = {
+    items: body.parts.map((p, i) => ({ name: p.name, object_ids: [i], suggestion: 'keep', description: p.name, reason: 'Found from the figure’s shape.' })),
+    model_description: '',
+    tips: [],
+  };
+  state.body = body;
+  setMode('edit');
+  applyObjectColors();
+  renderObjectList();
+}
+
+function analyseBody() {
+  return findBodyParts(state.mesh);
+}
+
+$('body-find').addEventListener('click', () => {
+  if (!state.mesh) return;
+  busy(async () => {
+    await stage('Finding the body parts…', null);
+    const body = analyseBody();
+    if (!body) {
+      toast('This doesn’t look like a standing figure (head on top, Z up) – stand it up on the plate and try again.');
+      return;
+    }
+    showBodyParts(body);
+    toast(`Found ${body.parts.map((p) => p.name.replace(/ \(.*\)/, '')).join(', ')} – click one in the Objects list to select it. Cut ▸ Around a neck cuts them off at the joints.`);
+  });
+});
 $('ai-goal').addEventListener('keydown', (e) => e.key === 'Enter' && askAI());
 $('ai-select-remove').addEventListener('click', () => {
   const ids = (state.ai?.items || []).filter((i) => i.suggestion === 'remove').flatMap((i) => i.object_ids);
@@ -2080,7 +2137,11 @@ $('neck-find').addEventListener('click', () => {
   if (!state.mesh) return;
   busy(async () => {
     await stage('Searching the model for necks…', null);
-    const necks = findNecks(state.mesh);
+    // A standing figure: its joints (neck, shoulders, hips) first.
+    const body = analyseBody();
+    const joints = body ? body.joints.map((j) => Object.assign(j.neck, { jointName: j.name, head: j.name.startsWith('Neck') })) : [];
+    const others = findNecks(state.mesh).filter((n) => !joints.some((j) => Math.hypot(...j.center.map((c, k) => c - n.center[k])) < Math.max(j.radius, n.radius) * 2));
+    const necks = [...joints, ...others];
     const list = $('neck-list');
     list.innerHTML = '';
     if (!necks.length) {
@@ -2091,10 +2152,13 @@ $('neck-find').addEventListener('click', () => {
       const b = document.createElement('button');
       b.className = 'cut-option';
       b.innerHTML = '<span class="dot"></span><span class="label"></span><span class="what"></span>';
-      b.querySelector('.label').textContent = neck.head ? 'Neck (head)' : 'Narrow part';
-      b.querySelector('.what').textContent = neck.head
-        ? `Ø ${fmtMM(2 * neck.radius)} mm · below the head`
-        : `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it (an arm, a leg…)`;
+      const name = neck.jointName || (neck.head ? 'Neck (head)' : 'Narrow part');
+      b.querySelector('.label').textContent = name.replace(/ \(.*\)/, '').replace(/ – .*/, '');
+      b.querySelector('.what').textContent = neck.jointName
+        ? `${name.includes('–') ? name.split('– ')[1] + ' · ' : neck.head ? 'below the head · ' : ''}Ø ${fmtMM(2 * neck.radius)} mm`
+        : neck.head
+          ? `Ø ${fmtMM(2 * neck.radius)} mm · below the head`
+          : `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it (an arm, a leg…)`;
       b.addEventListener('click', () => {
         for (const o of list.children) o.classList.toggle('active', o === b);
         chooseNeck(neck, -1);
