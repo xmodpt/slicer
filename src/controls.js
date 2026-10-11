@@ -9,7 +9,8 @@ import * as THREE from 'three';
 //   view size follows the same `distance` so switching keeps the framing.
 //
 // `buttons` maps mouse buttons (0 left, 1 middle, 2 right) to 'rotate', 'pan',
-// 'rotate-drag' (a click is left to the tools, a drag rotates), null (left
+// 'rotate-drag' (a click is left to the tools, a drag rotates), 'spin' /
+// 'spin-drag' (the same, but turning around the vertical axis only), null (left
 // alone for the selection tools) or a function of the event returning one of
 // those. The back/forward side buttons zoom.
 export class CameraControls extends THREE.EventDispatcher {
@@ -100,6 +101,13 @@ export class CameraControls extends THREE.EventDispatcher {
     this.orientation.setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), new THREE.Vector3(0, 0, 1)));
   }
 
+  // Turn around the vertical (world Z) axis only – left/right mouse movement,
+  // like a turntable; the tilt stays as it is.
+  _spin(dx) {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -dx * this.rotateSpeed);
+    this.orientation.premultiply(q).normalize();
+  }
+
   _halfHeight() {
     return this.distance * Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
   }
@@ -169,9 +177,9 @@ export class CameraControls extends THREE.EventDispatcher {
     if (typeof action === 'function') action = action(e); // decided per press
     if (action === 'rotate' && e.shiftKey) action = 'pan';
     if (!action || this._drag) return;
-    if (action === 'rotate-drag') {
+    if (action === 'rotate-drag' || action === 'spin-drag') {
       // Becomes a rotation only once the mouse really moves.
-      this._pending = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      this._pending = { x: e.clientX, y: e.clientY, id: e.pointerId, action: action === 'spin-drag' ? 'spin' : 'rotate' };
       return;
     }
     this._start(action, e);
@@ -181,13 +189,13 @@ export class CameraControls extends THREE.EventDispatcher {
     this._pending = null;
     this._drag = { action, x: e.clientX, y: e.clientY, id: e.pointerId };
     this.dom.setPointerCapture(e.pointerId);
-    this.dom.style.cursor = action === 'pan' ? 'move' : 'grabbing';
+    this.dom.style.cursor = action === 'pan' ? 'move' : action === 'spin' ? 'ew-resize' : 'grabbing';
   }
 
   _move(e) {
     const p = this._pending;
     if (p && e.pointerId === p.id && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
-      this._start('rotate', e);
+      this._start(p.action, e);
       this._drag.x = p.x;
       this._drag.y = p.y;
     }
@@ -197,6 +205,7 @@ export class CameraControls extends THREE.EventDispatcher {
     d.x = e.clientX;
     d.y = e.clientY;
     if (d.action === 'rotate') this._rotate(dx, dy);
+    else if (d.action === 'spin') this._spin(dx);
     else this._pan(dx, dy);
     this.update();
   }

@@ -1758,7 +1758,8 @@ for (const b of document.querySelectorAll('.menu-panel > button, .menu-panel .vi
 
 function updateControls() {
   const orbit = state.tool === 'orbit' || orbitOverride;
-  // Click tools: a click selects, a left-drag rotates (as in slicers).
+  // Click tools: a click selects, a left-drag turns the model around (left /
+  // right only); the right button rotates freely.
   const clickTool = ['pick', 'object', 'click', 'part', 'region', 'layflat', 'cut'].includes(state.tool);
   // Tools that drag on the model (Rotate, Brush): a drag that starts on empty
   // space rotates the view instead. Box and Block need empty space for their
@@ -1774,12 +1775,12 @@ function updateControls() {
       : state.tool === 'cut'
         ? (e) => {
             const r = canvas.getBoundingClientRect();
-            return cutGizmo.hit(e.clientX - r.left, e.clientY - r.top) ? null : 'rotate-drag';
+            return cutGizmo.hit(e.clientX - r.left, e.clientY - r.top) ? null : 'spin-drag';
           }
         : clickTool
-          ? 'rotate-drag'
+          ? 'spin-drag'
           : dragOnModelTool
-            ? (e) => (onModel(e) ? null : 'rotate')
+            ? (e) => (onModel(e) ? null : 'spin')
             : null,
     1: 'pan',
     2: state.tool === 'orbit' ? 'pan' : 'rotate',

@@ -259,10 +259,11 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
    Shift adds, Ctrl removes. `Ctrl+A` all, `Esc` none, `Ctrl+I` invert,
    `+`/`-` grow/shrink.
 
-   **Navigation:** right-drag rotates – and so does left-drag with the click
-   tools (Object, Triangle, Part, Region, Lay flat, Cut; a plain click still
-   selects), and a left-drag that starts on empty space rotates the view in
-   every tool except Box and Block.
+   **Navigation:** right-drag rotates freely. Left-drag with the click tools
+   (Object, Triangle, Part, Region, Lay flat, Cut; a plain click still
+   selects), or starting on empty space in the other tools except Box and
+   Block, only turns the model around – left/right movement spins the view
+   around the vertical axis, like a turntable, and the tilt stays.
    Middle-drag or Shift+right-drag pans, the wheel zooms toward the cursor,
    the mouse side buttons zoom, double-click sets the rotation centre, hold
    Alt to rotate with the left button in any tool. The **navigation gizmo**
