@@ -1345,12 +1345,30 @@ async function makeObject() {
     // A design that doesn't build goes back to the AI with the error, twice
     // at most – free models often slip on the first go.
     let solid;
+    let hiddenAsked = false;
     for (let attempt = 0; ; attempt++) {
       wait.textContent = 'Building the solid…';
       try {
-        solid = buildShape(wasm, data.recipe);
+        const warnings = [];
+        solid = buildShape(wasm, data.recipe, { warnings });
+        // Details placed inside the body don't show: back to the AI once.
+        if (warnings.length && !hiddenAsked && attempt < 2) {
+          hiddenAsked = true;
+          const what = warnings.map((w) => `${w.name ? `"${w.name}" ` : ''}at ${w.path}`).join(', ');
+          makeLog(`Some parts are hidden inside the rest (${escapeHTML(what)}) – asking the AI to move them out…`, 'muted');
+          solid.delete();
+          solid = null;
+          throw Object.assign(new Error(`these parts are completely hidden inside the rest of the object, so they don't show: ${what}. Move them outward so they stick out at least 1.5–3 mm from the surface they sit on (or make them bigger), keeping them touching it`), { hidden: true });
+        }
+        if (warnings.length) makeLog('Some details are still hidden inside the object.', 'muted');
         break;
       } catch (err) {
+        if (err.hidden) {
+          wait.textContent = 'Fixing the design…';
+          $('make-log').append(wait);
+          data = await ask({ previous: data.recipe, error: err.message });
+          continue;
+        }
         if (attempt >= 2) throw new Error(`The AI's design still doesn't work (${err.message}) – try again, describe it differently, or pick another AI model.`);
         makeLog(`The design didn't build (${escapeHTML(err.message)}) – asking the AI to fix it…`, 'muted');
         wait.textContent = 'Fixing the design…';

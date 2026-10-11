@@ -91,3 +91,51 @@ test('answers from thinking models: JSON in the reasoning field or after some te
   assert.equal(parsed.name, 'Tree');
   assert.throws(() => parseRecipe('I cannot do that.'), /It said: “I cannot do that.”/);
 });
+
+test('details hidden inside the body are reported; the example candle shows its drips', () => {
+  const warnings = [];
+  const hidden = { union: [{ cylinder: { r: 12, h: 90 } }, { around: { count: 6, shape: { cylinder: { r: 1, h: 10 }, translate: [9, 0, 70] } }, name: 'drips' }] };
+  buildShape(wasm, hidden, { warnings }).delete();
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].name, 'drips');
+  const candle = { union: [
+    { revolve: { profile: [[0, 0], [12, 0], [12, 88], [10.5, 91], [0, 90]] } },
+    { torus: { R: 11.5, r: 2 }, translate: [0, 0, 88.5] },
+    { around: { count: 6, shape: { union: [{ cylinder: { r: 2, h: 22 }, translate: [12.3, 0, 67] }, { sphere: { r: 2.4 }, translate: [12.3, 0, 67] }] } } },
+    { around: { count: 6, shape: { union: [{ cylinder: { r: 1.6, h: 10 }, translate: [12.2, 0, 79] }, { sphere: { r: 1.9 }, translate: [12.2, 0, 79] }] } }, rotate: [0, 0, 30] },
+    { cylinder: { r: 1, h: 9, r2: 0.6 }, translate: [0, 0, 89] },
+  ] };
+  const w2 = [];
+  const mesh = EditableMesh.fromSoup(manifoldToSoup(buildShape(wasm, candle, { warnings: w2 })));
+  assert.deepEqual(w2, []);
+  assert.ok(mesh.stats().watertight && mesh.stats().parts === 1);
+});
+
+test('tubes between points and hulls: a tree from its example builds as one closed piece', () => {
+  const tree = { union: [
+    { tube: { from: [0, 0, 0], to: [0, 0, 80], r: 7, r2: 4.5 } },
+    { tube: { from: [0, 0, 55], to: [28, 6, 95], r: 3.5, r2: 2 } },
+    { tube: { from: [0, 0, 62], to: [-24, 14, 100], r: 3.5, r2: 2 } },
+    { tube: { from: [0, 0, 70], to: [-8, -26, 104], r: 3, r2: 1.8 } },
+    { tube: { from: [0, 0, 75], to: [12, 22, 110], r: 3, r2: 1.8 } },
+    { tube: { from: [0, 0, 78], to: [0, 0, 118], r: 4.5, r2: 2.5 } },
+    { sphere: { r: 26 }, translate: [0, 0, 118] },
+    { sphere: { r: 20 }, translate: [26, 8, 104] },
+    { sphere: { r: 19 }, translate: [-24, 14, 106] },
+    { sphere: { r: 18 }, translate: [-8, -24, 108] },
+    { sphere: { r: 18 }, translate: [12, 22, 114] },
+    { sphere: { r: 16 }, translate: [0, 0, 138] },
+    { cylinder: { r: 12, h: 3, r2: 7 } },
+  ] };
+  const mesh = solid(tree);
+  assert.ok(mesh.stats().watertight);
+  assert.equal(mesh.stats().parts, 1);
+  const b = mesh.bounds();
+  assert.ok(b.min[2] > -7.1 && b.max[2] > 150 && b.max[0] > 40, 'tall, with a wide crown');
+  // A slanted tube really goes from its start to its end point.
+  const t = solid({ tube: { from: [0, 0, 0], to: [30, 0, 40], r: 2, round: false } }).bounds();
+  assert.ok(Math.abs(t.max[0] - 30) < 2.1 && Math.abs(t.max[2] - 40) < 2.1);
+  // A hull of two spheres is one smooth blob.
+  assert.ok(solid({ hull: [{ sphere: { r: 10 } }, { sphere: { r: 6 }, translate: [0, 0, 15] }] }).stats().watertight);
+  assert.ok(solid({ type: 'branch', start: [0, 0, 0], end: [0, 10, 10], radius: 2 }).stats().watertight, 'alias');
+});

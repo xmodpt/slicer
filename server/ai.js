@@ -96,6 +96,8 @@ Guidelines:
 - Real-world size in mm unless the user gives one (a table candle ~ 20–25 mm wide, 80–150 mm tall; a toy wheel ~ 40–60 mm across).
 - Model it standing on the plate: nothing below z = 0, the object resting on z = 0.
 - Make it printable: walls and details at least 1.2 mm thick, no loose floating pieces – parts that belong together must touch or overlap (overlap them by ~0.5 mm in unions).
+- Natural, organic things (trees, plants, animals, fruit) are built from tubes (branches, limbs, stems – give their end points; let the branches spread out in different directions, up and outwards, each 30–60 % of the trunk's length) and hulls or unions of several spheres (crowns, bodies, heads, fruit). Use several overlapping, differently sized and placed spheres for a natural, lumpy crown – not one flat disc.
+- Avoid "rotate" when you can give points instead: tubes need no rotation.
 - Prefer revolve for round, turned shapes (candles, vases, wheels' rims and tyres, knobs), extrude for flat outlines, around for repeated features (spokes, flutes, teeth), difference for holes.
 - Use enough detail to look like the thing, but keep it under ~150 nodes.
 - With a reference picture, copy its proportions and main features.
@@ -112,12 +114,35 @@ Example – "a mug":
      {"torus": {"R": 22, "r": 5}, "rotate": [90, 0, 0], "translate": [42, 0, 50]}]},
    {"cylinder": {"r": 36, "h": 95}, "translate": [0, 0, 4]}]}}
 
-Example – "a candle with drips" (revolve profile points are [distance from the axis, height], going round the outline):
-{"name": "Candle", "description": "A candle 24 mm wide and 100 mm tall with a wick and drips.",
+Example – "a tree" (trunk and branches as tubes between points, a lumpy crown from overlapping spheres):
+{"name": "Tree", "description": "A tree 150 mm tall with a tapering trunk, five branches and a leafy crown.",
  "recipe": {"union": [
-   {"revolve": {"profile": [[0, 0], [12, 0], [12, 90], [10, 92], [0, 92]]}},
-   {"around": {"count": 7, "shape": {"cylinder": {"r": 1.6, "h": 14, "r2": 0.8}, "translate": [11.6, 0, 76]}}},
-   {"cylinder": {"r": 1, "h": 9, "r2": 0.6}, "translate": [0, 0, 91]}]}}`;
+   {"tube": {"from": [0, 0, 0], "to": [0, 0, 80], "r": 7, "r2": 4.5}},
+   {"tube": {"from": [0, 0, 55], "to": [28, 6, 95], "r": 3.5, "r2": 2}},
+   {"tube": {"from": [0, 0, 62], "to": [-24, 14, 100], "r": 3.5, "r2": 2}},
+   {"tube": {"from": [0, 0, 70], "to": [-8, -26, 104], "r": 3, "r2": 1.8}},
+   {"tube": {"from": [0, 0, 75], "to": [12, 22, 110], "r": 3, "r2": 1.8}},
+   {"tube": {"from": [0, 0, 78], "to": [0, 0, 118], "r": 4.5, "r2": 2.5}},
+   {"sphere": {"r": 26}, "translate": [0, 0, 118]},
+   {"sphere": {"r": 20}, "translate": [26, 8, 104]},
+   {"sphere": {"r": 19}, "translate": [-24, 14, 106]},
+   {"sphere": {"r": 18}, "translate": [-8, -24, 108]},
+   {"sphere": {"r": 18}, "translate": [12, 22, 114]},
+   {"sphere": {"r": 16}, "translate": [0, 0, 138]},
+   {"cylinder": {"r": 12, "h": 3, "r2": 7}}]}}
+
+Example – "a candle with drips" (revolve profile points are [distance from the axis, height], going round the outline). Details on a surface (drips, buttons, studs) must sit ON it, centred about at the surface so half sticks out – a drip on a 12 mm radius candle is centred at 12–12.5 mm from the axis, not inside:
+{"name": "Candle", "description": "A candle 24 mm wide and 92 mm tall with a melted rim, drips of different lengths and a wick.",
+ "recipe": {"union": [
+   {"revolve": {"profile": [[0, 0], [12, 0], [12, 88], [10.5, 91], [0, 90]]}},
+   {"torus": {"R": 11.5, "r": 2}, "translate": [0, 0, 88.5]},
+   {"around": {"count": 6, "shape": {"union": [
+     {"cylinder": {"r": 2, "h": 22}, "translate": [12.3, 0, 67]},
+     {"sphere": {"r": 2.4}, "translate": [12.3, 0, 67]}]}}},
+   {"around": {"count": 6, "shape": {"union": [
+     {"cylinder": {"r": 1.6, "h": 10}, "translate": [12.2, 0, 79]},
+     {"sphere": {"r": 1.9}, "translate": [12.2, 0, 79]}]}}, "rotate": [0, 0, 30]},
+   {"cylinder": {"r": 1, "h": 9, "r2": 0.6}, "translate": [0, 0, 89]}]}}`;
 
 export async function makeShape(body, settings = {}) {
   const { prompt = '', images = [], previous = null, error = '' } = body;

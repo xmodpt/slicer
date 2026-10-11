@@ -6,6 +6,8 @@ export const RECIPE_HELP = `Shape recipe (JSON). Units mm, Z up. Every node is o
 {"torus": {"R": ringRadius, "r": tubeRadius}}         centred on the origin, lying flat around the Z axis
 {"revolve": {"profile": [[r, z], ...], "degrees": 360?}}  closed outline in the r–z plane (r >= 0) turned around the Z axis – vases, candles, bottles, knobs, wheels' rims
 {"extrude": {"outline": [[x, y], ...], "h": h, "twist": degrees?, "scaleTop": s?}}  closed 2D outline (counter-clockwise, not self-crossing) pushed up from z=0
+{"tube": {"from": [x, y, z], "to": [x, y, z], "r": r, "r2": endRadius?}}  a rod between two points with rounded ends – branches, roots, legs, arms, handles, stems. No rotation needed: just give the two end points
+{"hull": [node, ...]}                                 the smooth convex skin around the shapes – crowns of trees (a few spheres), apples, rocks, rounded bodies, heads
 {"union": [node, ...]}                                all together
 {"difference": [node, minus1, minus2, ...]}           the first node with the others cut away
 {"intersection": [node, ...]}                         only where all overlap

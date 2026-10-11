@@ -35,7 +35,10 @@ const points2 = (pts, name, min = 3) => {
 };
 
 // wasm: the initialised manifold-3d module. Returns a Manifold.
-export function buildShape(wasm, node, { segments = 64 } = {}) {
+// warnings (optional array): filled with parts of unions that end up hidden
+// inside the others – details the AI meant to show (drips, buttons…) but
+// placed inside the body.
+export function buildShape(wasm, node, { segments = 64, warnings = null } = {}) {
   node = normalizeRecipe(node);
   const { Manifold, CrossSection } = wasm;
   let count = 0;
@@ -95,12 +98,57 @@ export function buildShape(wasm, node, { segments = 64 } = {}) {
         m = cs.extrude(h, twist ? Math.max(8, Math.round(Math.abs(twist) / 5)) : 0, twist, [st, st]);
         break;
       }
+      case 'tube': {
+        // A rod from one point to another (branches, legs, handles, spokes):
+        // no rotation sums for the AI. Rounded ends by default, so tubes
+        // joined end to end make smooth bends.
+        const from = vec(a?.from, 3, `${path}.tube.from`), to = vec(a?.to, 3, `${path}.tube.to`);
+        const r = num(a.r, `${path}.tube.r`, { min: 1e-3 }), r2 = a.r2 === undefined ? r : num(a.r2, `${path}.tube.r2`, { min: 0 });
+        const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        const len = Math.hypot(...d);
+        if (len < 1e-6) throw new Error(`${path}: tube from and to are the same point`);
+        const z = d.map((x) => x / len);
+        const helper = Math.abs(z[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+        let x = [helper[1] * z[2] - helper[2] * z[1], helper[2] * z[0] - helper[0] * z[2], helper[0] * z[1] - helper[1] * z[0]];
+        const xl = Math.hypot(...x);
+        x = x.map((v) => v / xl);
+        const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+        const mat = [...x, 0, ...y, 0, ...z, 0, ...from, 1];
+        const seg = Math.max(12, Math.round(segments / 2));
+        m = keep(Manifold.cylinder(len, r, r2, seg)).transform(mat);
+        if (a.round !== false) {
+          const caps = [keep(m), keep(Manifold.sphere(r, seg)).translate(from)];
+          if (r2 > 0) caps.push(keep(Manifold.sphere(r2, seg)).translate(to));
+          caps.forEach(keep);
+          m = Manifold.union(caps);
+        }
+        break;
+      }
+      case 'hull': {
+        // The smooth skin around several shapes (a leafy crown from a few
+        // spheres, an apple, a rock, a rounded body).
+        if (!Array.isArray(a) || !a.length) throw new Error(`${path}: hull needs a list of shapes`);
+        const parts = a.map((c, i) => keep(build(c, `${path}.hull[${i}]`)));
+        m = Manifold.hull(parts);
+        break;
+      }
       case 'union':
       case 'intersection':
       case 'difference': {
         if (!Array.isArray(a) || !a.length) throw new Error(`${path}: ${kind} needs a list of shapes`);
         const parts = a.map((c, i) => keep(build(c, `${path}.${kind}[${i}]`)));
-        if (kind === 'union') m = Manifold.union(parts);
+        if (kind === 'union') {
+          m = Manifold.union(parts);
+          if (warnings && parts.length > 1 && parts.length <= 40) {
+            parts.forEach((part, i) => {
+              const vol = part.volume();
+              if (!(vol > 0)) return;
+              const others = keep(Manifold.union(parts.filter((_, j) => j !== i)));
+              const shows = keep(part.subtract(others)).volume();
+              if (shows < vol * 0.04) warnings.push({ path: `${path}.union[${i}]`, name: a[i]?.name || a[i]?.comment || Object.keys(normalizeRecipe(a[i]) || {}).find((k) => !['translate', 'rotate', 'scale'].includes(k)) });
+            });
+          }
+        }
         else if (kind === 'intersection') m = Manifold.intersection(parts);
         else m = parts.length === 1 ? parts[0] : parts[0].subtract(keep(Manifold.union(parts.slice(1))));
         break;
@@ -180,6 +228,8 @@ const KIND_ALIASES = {
   difference: 'difference', subtract: 'difference', minus: 'difference', cut: 'difference',
   intersection: 'intersection', intersect: 'intersection',
   around: 'around', circular: 'around', polar: 'around', polar_array: 'around', radial: 'around', circular_array: 'around',
+  tube: 'tube', rod: 'tube', branch: 'tube', limb: 'tube', capsule: 'tube', line: 'tube', segment: 'tube',
+  hull: 'hull', convex_hull: 'hull', blob: 'hull', wrap: 'hull',
   row: 'row', linear: 'row', linear_array: 'row', array: 'row', repeat: 'row',
 };
 const TRANSFORMS = { translate: 'translate', position: 'translate', pos: 'translate', offset: 'translate', move: 'translate', at: 'translate', rotate: 'rotate', rotation: 'rotate', rot: 'rotate', scale: 'scale' };
@@ -224,6 +274,8 @@ export function normalizeRecipe(node, depth = 0) {
   }
   if (!kind) return node;
   out[kind] = fixParams(kind, params, down);
+  const label = node.name ?? node.label ?? node.comment;
+  if (typeof label === 'string') out.name = label;
   return out;
 }
 
@@ -232,7 +284,7 @@ function fixParams(kind, p, down) {
     for (const k of keys) if (o[k] !== undefined) return o[k];
     return undefined;
   };
-  if (['union', 'difference', 'intersection'].includes(kind)) {
+  if (['union', 'difference', 'intersection', 'hull'].includes(kind)) {
     const list = Array.isArray(p) ? p : isObj(p) ? pick(p, 'children', 'shapes', 'items', 'parts', 'nodes', 'of') : null;
     if (kind === 'difference' && isObj(p) && !list) {
       const base = pick(p, 'base', 'from', 'a', 'shape');
@@ -274,6 +326,14 @@ function fixParams(kind, p, down) {
         h: pick(q, 'h', 'height', 'depth', 'length'),
         ...(q.twist !== undefined ? { twist: q.twist } : {}),
         ...(pick(q, 'scaleTop', 'scale_top', 'topScale') !== undefined ? { scaleTop: pick(q, 'scaleTop', 'scale_top', 'topScale') } : {}),
+      };
+    case 'tube':
+      return {
+        from: xyz(pick(q, 'from', 'start', 'a', 'p1', 'base')),
+        to: xyz(pick(q, 'to', 'end', 'b', 'p2', 'tip')),
+        r: pick(q, 'r', 'radius', 'r1', 'radius1', 'startRadius') ?? half(pick(q, 'd', 'diameter')),
+        ...(pick(q, 'r2', 'radius2', 'endRadius', 'tipRadius') !== undefined ? { r2: pick(q, 'r2', 'radius2', 'endRadius', 'tipRadius') } : {}),
+        ...(q.round !== undefined ? { round: q.round } : {}),
       };
     case 'around':
       return { count: pick(q, 'count', 'n', 'number', 'copies', 'times'), shape: down(pick(q, 'shape', 'child', 'item', 'node', 'of', 'children')), ...(q.axis ? { axis: String(q.axis).toLowerCase() } : {}) };

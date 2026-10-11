@@ -106,8 +106,12 @@ see images – Gemini, ChatGPT, Claude and OpenRouter's free router can).
 
 The AI doesn't draw triangles: it answers with a *shape recipe* – boxes,
 cylinders and cones, spheres, rings, outlines turned around an axis (candles,
-vases, rims) or pushed up (flat shapes), copies around an axis (spokes,
-teeth), and adding, cutting away and overlapping them (`src/shapegen.js`).
+vases, rims) or pushed up (flat shapes), rods between two points (branches,
+legs, handles), smooth skins around shapes (crowns, fruit, rocks), copies
+around an axis (spokes, teeth), and adding, cutting away and overlapping them
+(`src/shapegen.js`). A design that doesn't build, or has details hidden inside
+the body, goes back to the AI with what went wrong (up to twice). Results are
+stylised, like a toy or a game prop – no bark, leaves or fine texture.
 The editor builds the recipe with the manifold-3d geometry library, so the
 result is always a closed, printable solid in mm, standing on the plate.
 
