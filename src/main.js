@@ -2,15 +2,12 @@ import * as THREE from 'three';
 import { EditableMesh } from './mesh.js';
 import { parseSTL, writeBinarySTL } from './stl.js';
 import { Viewer } from './viewer.js';
-import { segmentObjects, segmentForKit, cleanLabels } from './segment.js';
+import { segmentObjects } from './segment.js';
 import { cakeWithCandles } from './samples.js';
 import { makeZip } from './zip.js';
 import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
-import { findBodyParts } from './body.js';
-import { kitCuts, kitPreview, splitFigure } from './kit.js';
-import { findNeckAt, findNecks, seamLoop, cutAlongLoop, neckFromPainting, smoothLine, splitAlongLine } from './neck.js';
 import { CutGizmo } from './cutgizmo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -273,7 +270,6 @@ function edit(fn) {
   if (!state.mesh) return;
   const before = snapshotAll();
   state.moving = false;
-  state.quietFloating = false;
   const result = fn(state.mesh);
   const { message, selection } = typeof result === 'object' && result ? result : { message: result };
   if (state.mesh.indices !== before.indices) {
@@ -349,7 +345,6 @@ function closeHoles() {
 }
 
 function undo() {
-  state.quietFloating = false;
   if (!state.undo.length) return;
   state.moving = false;
   state.redo.push(snapshotAll());
@@ -630,12 +625,6 @@ function checkFloating() {
   if (before.size !== state.floatingFirst.size || [...before].some((f) => !state.floatingFirst.has(f))) renderObjectList();
   if (cardOverride === 'fix') renderFix();
   const box = $('floating-warning');
-  // Parts pulled apart on purpose (a split figure) float until the next edit.
-  if (state.quietFloating) {
-    box.hidden = true;
-    state.floatingCount = floating.length;
-    return;
-  }
   box.hidden = !floating.length;
   if (!floating.length) return;
   const tris = floating.reduce((n, p) => n + p.faces.length, 0);
@@ -669,14 +658,6 @@ function runStep(step) {
 function refresh({ frame = false } = {}) {
   const { mesh } = state;
   if (state.faceGroup.length !== mesh.triangleCount) state.faceGroup = new Int32Array(mesh.triangleCount);
-  // A chosen neck's cut line refers to the old triangles.
-  state.neck = null;
-  state.neckThrough = -1;
-  state.neckLine = null;
-  state.neckLoop = null;
-  state.neckLoopPts = null;
-  $('neck-cut').disabled = true;
-  $('neck-info').textContent = '';
   state.hidden = null;
   state.partNames = [];
   state.names = new Map();
@@ -864,8 +845,7 @@ function renderObjectList() {
       addTreeRow(list, {
         key: pkey,
         depth: 1,
-        // A part holding exactly one named object (AI or body parts) takes its name.
-        name: state.partNames[i] || (rows.length === 1 && state.ai ? rows[0].name : partName(i)),
+        name: partName(i),
         rename: (v) => (state.partNames[i] = v),
         meta: `${part.faces.length.toLocaleString()} tris${part.open ? ' · open' : ''}`,
         badge: state.floatingFirst?.has(part.faces[0]) ? 'floating' : null,
@@ -1058,8 +1038,8 @@ function describeObjects(ids) {
 }
 
 // One JPEG view with every listed object labelled "#id" where it is visible.
-function labelledView(dir, ids, px = 768) {
-  const { pixels, faces, size } = viewer.captureView(dir, px);
+function labelledView(dir, ids) {
+  const { pixels, faces, size } = viewer.captureView(dir, 768);
   const wanted = new Set(ids);
   const count = new Map(), sumX = new Map(), sumY = new Map();
   for (let i = 0; i < faces.length; i++) {
@@ -1134,7 +1114,6 @@ async function askAI() {
   } catch (err) {
     applyObjectColors();
     $('ai-summary').textContent = 'AI analysis failed: ' + (err.message || err);
-    aiFailed(String(err.message || err));
   } finally {
     button.disabled = false;
     button.textContent = 'Ask AI to identify objects';
@@ -1142,408 +1121,6 @@ async function askAI() {
 }
 
 $('ai-run').addEventListener('click', askAI);
-
-// ---------------------------------------------------------------------------
-// AI settings: which AI (Claude, ChatGPT, Gemini, local), model, key – saved
-// on the server (server/ai.js), keys never come back to the browser.
-
-let aiSettings = null;
-
-async function loadAISettings() {
-  try {
-    const res = await fetch('./api/ai/settings');
-    if (!res.ok) throw new Error();
-    aiSettings = await res.json();
-  } catch {
-    aiSettings = null;
-  }
-  const current = aiSettings?.providers.find((p) => p.id === aiSettings.provider);
-  $('ai-provider-line').textContent = current
-    ? `Using ${current.label.replace(/ \(.*/, '')} – ${current.model}${current.hasKey || current.id === 'local' ? '' : ' (no key yet)'}`
-    : 'AI support is not available on this server.';
-  return aiSettings;
-}
-
-function fillAISettings(providerId) {
-  if (!aiSettings) return;
-  const sel = $('ai-provider');
-  if (!sel.options.length) for (const p of aiSettings.providers) sel.add(new Option(p.label, p.id));
-  sel.value = providerId || aiSettings.provider;
-  const p = aiSettings.providers.find((x) => x.id === sel.value);
-  $('ai-model').value = p.model;
-  $('ai-model').placeholder = p.defaultModel;
-  $('ai-baseurl-row').hidden = !p.needsBaseUrl;
-  $('ai-baseurl').value = p.baseUrl;
-  $('ai-key').value = '';
-  $('ai-key').placeholder = p.hasKey ? 'saved ✓ – paste a new one to replace it' : p.id === 'local' ? 'usually not needed' : 'paste your key';
-  $('ai-key-help').innerHTML = p.keyUrl ? `Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a> ${p.free ? '(free – no card needed; limited requests per day).' : '(the AI company bills your account – usually a few cents per analysis).'}` : '';
-  $('ai-clearkey').disabled = !p.hasKey;
-}
-
-async function showAISettings(message = '') {
-  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open');
-  await loadAISettings();
-  if (!aiSettings) {
-    toast('AI support is not available – run "npm install" on the server and restart it.');
-    return;
-  }
-  $('ai-provider').innerHTML = '';
-  fillAISettings();
-  $('ai-status').textContent = message;
-  $('ai-status').className = 'ai-status' + (message ? ' bad' : '');
-  $('ai-settings').hidden = false;
-}
-
-async function saveAISettings(extra = {}) {
-  const body = { provider: $('ai-provider').value, model: $('ai-model').value, baseUrl: $('ai-baseurl').value, apiKey: $('ai-key').value, ...extra };
-  const res = await fetch('./api/ai/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-  aiSettings = data;
-  fillAISettings(body.provider);
-  await loadAISettings();
-}
-
-const aiStatus = (text, ok) => {
-  $('ai-status').textContent = text;
-  $('ai-status').className = 'ai-status ' + (ok ? 'ok' : 'bad');
-};
-
-$('ai-settings-open').addEventListener('click', (e) => {
-  e.stopPropagation();
-  showAISettings();
-});
-$('ai-settings-close').addEventListener('click', () => ($('ai-settings').hidden = true));
-$('ai-provider').addEventListener('change', () => fillAISettings($('ai-provider').value));
-$('ai-save').addEventListener('click', async () => {
-  try {
-    await saveAISettings();
-    aiStatus('Saved.', true);
-  } catch (err) {
-    aiStatus(err.message);
-  }
-});
-$('ai-clearkey').addEventListener('click', async () => {
-  try {
-    await saveAISettings({ clearKey: true, apiKey: '' });
-    aiStatus('Key removed.', true);
-  } catch (err) {
-    aiStatus(err.message);
-  }
-});
-$('ai-test').addEventListener('click', async () => {
-  aiStatus('Testing…', true);
-  try {
-    await saveAISettings();
-    const res = await fetch('./api/ai/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-    if (data.replacedModel) {
-      $('ai-model').value = data.replacedModel;
-      await loadAISettings();
-    }
-    aiStatus(`It works${data.replacedModel ? ` – the old model was retired, switched to ${data.replacedModel}` : ''} – ${data.model} answered “${(data.reply || '').slice(0, 40)}”.`, true);
-  } catch (err) {
-    aiStatus(err.message);
-  }
-});
-loadAISettings();
-
-// An AI request failed: missing or wrong key / model → open the settings.
-function aiFailed(message) {
-  if (/AI settings|API key|model/i.test(message)) showAISettings(message);
-}
-
-// ---------------------------------------------------------------------------
-// Printable kit: the AI sorts small patches into the parts a creator would
-// print separately (head, hair, jacket, arms, shoes, table…); then each part
-// can be made its own closed model.
-
-const KIT_VIEWS = [
-  ['front', [0, -1, 0.15]],
-  ['back', [0, 1, 0.15]],
-  ['left side', [-1, 0, 0.15]],
-  ['right side', [1, 0, 0.15]],
-  ['front-left, from above', [0.55, -0.75, 0.45]],
-  ['top-down', [0, 0, 1]],
-];
-const KIT_COLORS = [0x6fa8ff, 0x7bd88f, 0xd78fe8, 0xf2d464, 0x5fd3d0, 0xff8fa3, 0xa3a0ff, 0xb7e06a, 0xf2a35f, 0x8fc7ff, 0xe6a4d8, 0xc9b38f, 0x9fe0c9, 0xff7f7f];
-
-async function askAIKit() {
-  if (!state.mesh) return;
-  setMode('edit');
-  const buttons = [$('ai-kit'), $('ai-kit-edit')];
-  for (const b of buttons) b.disabled = true;
-  $('ai-separate').hidden = true;
-  $('ai-summary').textContent = 'Splitting the model into patches and asking the AI which part each one is – this can take a minute or two.';
-  toast('Asking the AI to split the model into printable parts…');
-  try {
-    await stage('Splitting into patches…', null);
-    // Two plain views first, so the AI sees the figure itself (where a sock
-    // ends, a shoe begins…), then the numbered patches.
-    setHoverObjects([]);
-    viewer.setObjects(state.seg.objectOf, null);
-    viewer.setSelection(new Uint8Array(state.mesh.triangleCount));
-    const plain = [
-      ['front, plain (no patches)', [0, -1, 0.15]],
-      ['back, plain (no patches)', [0, 1, 0.15]],
-    ].map(([view, dir]) => ({ view, data: labelledView(dir, [], 1024) }));
-    const seg = segmentForKit(state.mesh, { target: 80 });
-    state.seg = seg;
-    state.ai = null;
-    state.objectColors = seg.objects.map((o, i) => new THREE.Color().setHSL((i * 0.618) % 1, 0.55, 0.6));
-    setHoverObjects([]);
-    viewer.setObjects(seg.objectOf, state.objectColors);
-    viewer.setSelection(new Uint8Array(state.mesh.triangleCount));
-    const ids = seg.objects.map((o) => o.id);
-    const images = [...plain, ...KIT_VIEWS.map(([view, dir]) => ({ view, data: labelledView(dir, ids, 1024) }))];
-    renderObjectList();
-    const res = await fetch('./api/ai/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ images, objects: describeObjects(ids), fileName: state.fileName, goal: $('ai-goal').value, mode: 'kit' }),
-    });
-    const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-    if (state.seg !== seg) return; // the model changed while waiting
-    fillUnassigned(seg, data.items);
-    state.ai = data;
-    // One colour per part.
-    data.items.forEach((item, k) => item.object_ids.forEach((id) => (state.objectColors[id] = new THREE.Color(KIT_COLORS[k % KIT_COLORS.length]))));
-    applyObjectColors();
-    renderObjectList();
-    $('ai-summary').textContent = `${data.model_description} Parts: ${data.items.map((i) => i.name).join(', ')}.`;
-    $('ai-separate').hidden = false;
-    toast(`Found ${data.items.length} parts – check them in the Objects list, then press “Separate the parts”.`);
-  } catch (err) {
-    applyObjectColors();
-    const msg = 'AI split failed: ' + (err.message || err);
-    $('ai-summary').textContent = msg;
-    toast(msg);
-    aiFailed(String(err.message || err));
-  } finally {
-    for (const b of buttons) b.disabled = false;
-    $('busy').style.display = 'none';
-  }
-}
-
-// Patches the AI left out join the part they share the longest border with.
-function fillUnassigned(seg, items) {
-  const itemOf = new Int32Array(seg.objects.length).fill(-1);
-  items.forEach((item, k) => item.object_ids.forEach((id) => (itemOf[id] = k)));
-  const mesh = state.mesh;
-  for (let pass = 0; pass < 20 && itemOf.some((x) => x < 0); pass++) {
-    const votes = new Map();
-    for (let t = 0; t < mesh.triangleCount; t++) {
-      const a = seg.objectOf[t];
-      if (itemOf[a] >= 0) continue;
-      mesh.forEachEdgeNeighbour(t, (o) => {
-        const k = itemOf[seg.objectOf[o]];
-        if (k < 0) return;
-        const v = votes.get(a) || new Map();
-        v.set(k, (v.get(k) || 0) + 1);
-        votes.set(a, v);
-      });
-    }
-    if (!votes.size) break;
-    for (const [a, v] of votes) itemOf[a] = [...v.entries()].sort((x, y) => y[1] - x[1])[0][0];
-  }
-  itemOf.forEach((k, id) => {
-    if (k >= 0 && !items[k].object_ids.includes(id)) items[k].object_ids.push(id);
-  });
-}
-
-// Each part becomes its own closed model (one undo step).
-function separateKit() {
-  const { mesh, seg, ai } = state;
-  if (!mesh || !seg || !ai?.items?.length) return;
-  const T0 = mesh.triangleCount;
-  const itemOf = new Int32Array(T0).fill(-1);
-  ai.items.forEach((item, k) => item.object_ids.forEach((id) => seg.facesOf(id).forEach((t) => (itemOf[t] = k))));
-  // Clean borders: no lone triangles, no corners where a part touches itself.
-  cleanLabels(mesh, itemOf);
-  const sizes = ai.items.map((_, k) => itemOf.reduce((n, x) => n + (x === k), 0));
-  const order = ai.items.map((_, k) => k).sort((a, b) => sizes[b] - sizes[a]);
-  const names = ai.items.map((i) => i.name);
-  edit((m) => {
-    for (const k of order.slice(1)) {
-      const mask = new Uint8Array(m.triangleCount);
-      for (let t = 0; t < T0; t++) if (itemOf[t] === k) mask[t] = 1;
-      m.splitOff(mask, { close: true });
-    }
-    return `Separated into ${ai.items.length} parts, each closed where it was cut`;
-  });
-  // Models named after the parts: each piece goes to the part most of its
-  // (original) triangles belong to.
-  const next = new Int32Array(state.mesh.triangleCount);
-  const groupOfItem = new Map();
-  for (const part of state.mesh.parts()) {
-    const count = new Map();
-    for (const t of part.faces) if (t < T0 && itemOf[t] >= 0) count.set(itemOf[t], (count.get(itemOf[t]) || 0) + 1);
-    const k = count.size ? [...count.entries()].sort((a, b) => b[1] - a[1])[0][0] : -1;
-    if (!groupOfItem.has(k)) groupOfItem.set(k, newGroupId(k >= 0 ? names[k] : 'Other'));
-    for (const t of part.faces) next[t] = groupOfItem.get(k);
-  }
-  state.faceGroup = next;
-  $('ai-separate').hidden = true;
-  setMode('normal');
-  renderObjectList();
-  updateExportLabels();
-}
-
-$('ai-kit').addEventListener('click', askAIKit);
-$('ai-kit-edit').addEventListener('click', askAIKit);
-$('ai-separate').addEventListener('click', separateKit);
-
-// ---------------------------------------------------------------------------
-// Body parts of a standing figure (see body.js): shown as named objects in
-// the tree (Edit mode), like the AI's names.
-
-const BODY_COLORS = [0xf2c58f, 0x8fb8e8, 0x7bd88f, 0x5fbf6f, 0xd78fe8, 0xb77fd0];
-
-function showBodyParts(body) {
-  const T = state.mesh.triangleCount;
-  const objectOf = new Int32Array(T);
-  const offsets = new Uint32Array(body.parts.length + 1);
-  const all = new Uint32Array(T);
-  let o = 0;
-  body.parts.forEach((part, i) => {
-    offsets[i] = o;
-    for (const t of part.faces) {
-      objectOf[t] = i;
-      all[o++] = t;
-    }
-  });
-  offsets[body.parts.length] = o;
-  state.seg = {
-    objectOf,
-    objects: body.parts.map((p, i) => ({ id: i, triangles: p.faces.length, share: p.faces.length / T })),
-    facesOf: (id) => all.subarray(offsets[id], offsets[id + 1]),
-  };
-  state.objectColors = body.parts.map((p) => new THREE.Color(BODY_COLORS[p.id % BODY_COLORS.length]));
-  state.ai = {
-    items: body.parts.map((p, i) => ({ name: p.name, object_ids: [i], suggestion: 'keep', description: p.name, reason: 'Found from the figure’s shape.' })),
-    model_description: '',
-    tips: [],
-  };
-  state.body = body;
-  setMode('edit');
-  applyObjectColors();
-  renderObjectList();
-}
-
-function analyseBody() {
-  return findBodyParts(state.mesh);
-}
-
-$('body-find').addEventListener('click', () => {
-  if (!state.mesh) return;
-  busy(async () => {
-    await stage('Finding the body parts…', null);
-    const body = analyseBody();
-    if (!body) {
-      toast('This doesn’t look like a standing figure (head on top, Z up) – stand it up on the plate and try again.');
-      return;
-    }
-    showBodyParts(body);
-    toast(`Found ${body.parts.map((p) => p.name.replace(/ \(.*\)/, '')).join(', ')} – click one in the Objects list to select it. Cut ▸ Around a neck cuts them off at the joints.`);
-  });
-});
-// ---------------------------------------------------------------------------
-// Split a figure into printable parts at its joints (see kit.js): choose what
-// comes off, see it in colour, then cut.
-
-const KIT_KEYS = ['head', 'legs', 'feet', 'base', 'arms'];
-function kitChoices() {
-  return Object.fromEntries(KIT_KEYS.map((k) => [k, $('kit-' + k).checked && !$('kit-' + k).disabled]));
-}
-
-function showKitPlan() {
-  const body = state.kitBody;
-  if (!body) return;
-  const cuts = kitCuts(body, kitChoices());
-  const parts = kitPreview(body, cuts).filter((p) => p.faces.length);
-  showBodyParts({ parts: parts.map((p, i) => ({ ...p, id: i })), joints: body.joints });
-  $('kit-info').textContent = cuts.length
-    ? `${parts.length} parts: ${parts.map((p) => p.name.replace(/ \(.*\)/, '')).join(', ')} – each cut is closed on both sides${$('kit-pin').value === 'none' ? '' : ', with a pin and a matching hole'}.`
-    : 'Tick at least one part to cut off.';
-  $('kit-cut').disabled = !cuts.length;
-}
-
-$('kit-plan').addEventListener('click', () => {
-  if (!state.mesh) return;
-  busy(async () => {
-    await stage('Finding the head, legs, base…', null);
-    const body = analyseBody();
-    if (!body) {
-      $('kit-ui').hidden = true;
-      toast('This doesn’t look like a standing figure (head on top, Z up) – stand it up on the plate and try again.');
-      return;
-    }
-    state.kitBody = body;
-    $('kit-base').disabled = !body.base;
-    $('kit-base').parentElement.title = body.base ? '' : 'No base found under the feet';
-    $('kit-feet').disabled = !body.joints.some((j) => j.name.startsWith('Ankle'));
-    $('kit-feet').parentElement.title = $('kit-feet').disabled ? 'No ankles found (the legs don’t get narrower above the feet)' : '';
-    $('kit-ui').hidden = false;
-    showKitPlan();
-  });
-});
-for (const k of KIT_KEYS) $('kit-' + k).addEventListener('change', showKitPlan);
-$('kit-pin').addEventListener('change', showKitPlan);
-
-// Pull the parts of a split figure apart (one undo step), each a bit above
-// the one it stood on, the arms out to the sides – so every joint shows.
-function spreadKit(names, ids) {
-  const mesh = state.mesh;
-  const { min, max } = mesh.bounds();
-  const gap = Math.max(2, (max[2] - min[2]) * 0.06);
-  state.quietFloating = true;
-  const level = (n) => (n === 'Base' ? 0 : n.startsWith('Foot') ? 1 : n.startsWith('Leg') ? 2 : n === 'Head' ? 4 : 3);
-  transformBurst(() => {
-    names.forEach((n, i) => {
-      const mask = new Uint8Array(mesh.triangleCount);
-      let any = false;
-      state.faceGroup.forEach((g, t) => g === ids[i] && (mask[t] = any = 1));
-      if (!any) return;
-      const b = mesh.bounds(mask);
-      const side = n.startsWith('Arm') ? Math.sign((b.min[0] + b.max[0]) / 2 - (min[0] + max[0]) / 2) * gap : 0;
-      mesh.translate(side, 0, level(n) * gap, mesh.verticesOf(mask));
-    });
-  });
-  state.moving = false;
-  viewer.frame();
-}
-
-$('kit-cut').addEventListener('click', () => {
-  const body = state.kitBody;
-  if (!state.mesh || !body) return;
-  const cuts = kitCuts(body, kitChoices());
-  if (!cuts.length) return;
-  busy(async () => {
-    await stage(`Cutting ${cuts.length} joint${cuts.length > 1 ? 's' : ''} – this can take a little while…`, null);
-    const shape = $('kit-pin').value;
-    const connector = shape === 'none' ? null : { shape, size: 0, length: 0, taper: Math.max(0, +$('neck-taper').value || 1), tolerance: Math.max(0, +$('neck-tol').value || 0.2) };
-    let result = null;
-    edit((mesh) => {
-      result = splitFigure(mesh, cuts, { connector, collar: $('kit-collar').checked, smooth: +$('neck-smooth').value / 100 });
-      return result.done.length ? `Cut off ${result.done.map((n) => n.replace(/ \(.*\)/, '')).join(', ')}` : '';
-    });
-    if (!result) return;
-    // One model per piece, named after it.
-    const ids = result.names.map((n) => newGroupId(n));
-    state.faceGroup = Int32Array.from(result.labels, (l) => ids[l]);
-    state.kitBody = null;
-    $('kit-ui').hidden = true;
-    setMode('normal');
-    renderObjectList();
-    updateExportLabels();
-    if (result.done.length) spreadKit(result.names, ids);
-    const pins = connector ? ` Pulled apart so you can see each joint (Ctrl+Z puts them back together). Each joint has a ${shape} pin (tip ${fmtMM(connector.taper)} % narrower) and a hole ${fmtMM(connector.tolerance)} mm wider.` : '';
-    toast(`${result.done.length ? `Split into ${result.names.length} parts.` : 'Nothing was cut.'}${pins} ${result.notes.join(' ')}`.trim());
-  });
-});
-
 $('ai-goal').addEventListener('keydown', (e) => e.key === 'Enter' && askAI());
 $('ai-select-remove').addEventListener('click', () => {
   const ids = (state.ai?.items || []).filter((i) => i.suggestion === 'remove').flatMap((i) => i.object_ids);
@@ -1773,9 +1350,7 @@ function updateControls() {
   viewer.controls.buttons = {
     0: orbit
       ? 'rotate'
-      : state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting
-        ? null
-        : state.tool === 'cut'
+      : state.tool === 'cut'
         ? (e) => {
             const r = canvas.getBoundingClientRect();
             return cutGizmo.hit(e.clientX - r.left, e.clientY - r.top) ? null : 'rotate-drag';
@@ -1789,7 +1364,7 @@ function updateControls() {
     2: state.tool === 'orbit' ? 'pan' : 'rotate',
   };
   const cursors = { brush: 'none', pick: 'pointer', object: 'pointer', layflat: 'pointer', cut: 'pointer', rotate: 'ew-resize', move: 'move' };
-  view.style.cursor = orbit ? 'grab' : state.tool === 'cut' && state.neckPainting && state.cutKind === 'neck' ? 'none' : cursors[state.tool] || 'crosshair';
+  view.style.cursor = orbit ? 'grab' : cursors[state.tool] || 'crosshair';
   if (orbit) brushCursor.style.display = 'none';
 }
 
@@ -1812,7 +1387,8 @@ function brushAt(p, mode) {
   applyFaces(faces, mode);
 }
 
-function moveBrushCursor(p, size = +$('brush-size').value) {
+function moveBrushCursor(p) {
+  const size = +$('brush-size').value;
   Object.assign(brushCursor.style, {
     display: 'block',
     left: p.x + 'px',
@@ -1840,13 +1416,11 @@ canvas.addEventListener('pointerdown', (e) => {
   if (state.tool === 'brush') brushAt(p, drag.mode);
   if (state.tool === 'rotate') startSpin(p.x);
   if (state.tool === 'move') startSlide(p);
-  if (state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) neckPaintAt(p, e.ctrlKey || e.metaKey);
 });
 
 canvas.addEventListener('pointermove', (e) => {
   const p = localPos(e);
   if (state.tool === 'brush' && !orbitOverride) moveBrushCursor(p);
-  if (state.tool === 'cut' && state.neckPainting && !orbitOverride) moveBrushCursor(p, +$('neck-brush').value);
   if (state.tool === 'object' && state.seg && e.buttons === 0) {
     const face = viewer.faceAt(p.x, p.y);
     setHoverObjects(face < 0 ? [] : rowObjects(state.seg.objectOf[face]));
@@ -1861,7 +1435,6 @@ canvas.addEventListener('pointermove', (e) => {
   if (state.tool === 'rotate') updateSpin(p.x, e.shiftKey);
   if (state.tool === 'move') updateSlide(p, e.shiftKey, e.ctrlKey || e.metaKey);
   if (state.tool === 'brush') brushAt(p, drag.mode);
-  if (state.tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) neckPaintAt(p, e.ctrlKey || e.metaKey);
   if (state.tool === 'box' || state.tool === 'block') {
     boxRect.classList.toggle('block', state.tool === 'block');
     Object.assign(boxRect.style, {
@@ -1916,15 +1489,7 @@ canvas.addEventListener('pointerup', (e) => {
     applyFaces(faces, mode);
     return;
   }
-  if (tool === 'cut' && state.cutKind === 'neck' && state.neckPainting) {
-    neckFromPaint();
-    return;
-  }
   if (tool === 'brush' || moved) return;
-  if (tool === 'cut' && state.cutKind === 'neck') {
-    if (viewer.faceAt(p.x, p.y) >= 0) neckClick(p);
-    return;
-  }
   if (tool === 'cut' && manualPlacement() && !e.shiftKey) {
     manualClick(p, e.ctrlKey || e.metaKey);
     return;
@@ -2310,289 +1875,14 @@ function syncCutControls(lo, hi) {
 
 function showCutPlane() {
   const on = state.tool === 'cut' && !!state.mesh;
-  const plane = on && state.cutKind !== 'neck';
-  if (!plane) {
+  if (!on) {
     viewer.setConnectorPreview(null);
-    viewer.setCutOutline(on && state.neckLoopPts ? [state.neckLoopPts] : null);
+    viewer.setCutOutline(null);
+    viewer.setCutOutline(null);
   }
-  viewer.setCutPlane(plane ? cut : null);
-  cutGizmo.update(plane ? cut : null, plane ? viewer.geometry.boundingSphere.radius : 0);
+  viewer.setCutPlane(on ? cut : null);
+  cutGizmo.update(on ? cut : null, on ? viewer.geometry.boundingSphere.radius : 0);
 }
-
-// ---------------------------------------------------------------------------
-// Neck cut: separate a head (an arm, a handle…) around its neck, along a line
-// that follows the surface (see neck.js).
-
-state.cutKind = 'plane';
-
-function setCutKind(kind) {
-  state.cutKind = kind;
-  if (kind !== 'neck' && state.neckPainting) setNeckPainting(false);
-  clearTimeout(analysisTimer);
-  for (const b of document.querySelectorAll('[data-cutkind]')) b.classList.toggle('active', b.dataset.cutkind === kind);
-  $('cut-neck-ui').hidden = kind !== 'neck';
-  $('cut-plane-ui').hidden = kind === 'neck';
-  $('cut-done').hidden = true;
-  $('status-hint').textContent =
-    kind === 'neck' ? 'Neck cut: click on the neck (where it is thinnest) · Enter cuts along the yellow line' : TOOL_HINTS.cut;
-  if (kind === 'plane') scheduleCutAnalysis();
-  showCutPlane();
-}
-for (const b of document.querySelectorAll('[data-cutkind]')) b.addEventListener('click', () => setCutKind(b.dataset.cutkind));
-
-function neckOptions() {
-  const opts = { follow: +$('neck-follow').value / 100, width: +$('neck-width').value / 100, through: state.neckThrough ?? -1, collar: !!state.neckCollar };
-  // A painted line: follow it (creases count less), as far as it goes.
-  if (state.neck?.painted) Object.assign(opts, { painted: state.neck.painted, reach: state.neck.reach, follow: opts.follow * 0.5 });
-  return opts;
-}
-
-function neckConnector() {
-  return {
-    shape: $('neck-pin').value,
-    size: +$('neck-pin-size').value || 0,
-    length: +$('neck-pin-len').value || 0,
-    taper: Math.max(0, +$('neck-taper').value || 0),
-    tolerance: Math.max(0, +$('neck-tol').value || 0),
-  };
-}
-
-// Painting the cut line: a brush on the model (the painted triangles show
-// like a selection). The line is worked out when a stroke ends.
-state.neckPainting = false;
-function setNeckPainting(on) {
-  state.neckPainting = on;
-  $('neck-paint').classList.toggle('active', on);
-  $('neck-paint-ui').hidden = !on;
-  if (!on) brushCursor.style.display = 'none';
-  updateControls();
-  if (on) {
-    state.neck = null;
-    updateNeckLine();
-    runSelection('none');
-    $('neck-info').textContent = 'Paint around the neck where the cut should go.';
-  }
-}
-$('neck-paint').addEventListener('click', () => setNeckPainting(!state.neckPainting));
-$('neck-paint-clear').addEventListener('click', () => {
-  runSelection('none');
-  state.neck = null;
-  updateNeckLine();
-});
-// Collar mode: look for the joint between the neck and the clothes.
-$('neck-collar').addEventListener('click', () => {
-  state.neckCollar = !state.neckCollar;
-  $('neck-collar').classList.toggle('active', state.neckCollar);
-  if (state.neckCollar) {
-    $('neck-follow').value = 100;
-    $('neck-follow-val').textContent = '100%';
-  }
-  if (state.neck) updateNeckLine();
-});
-$('neck-smooth').addEventListener('input', (e) => ($('neck-smooth-val').textContent = e.target.value + '%'));
-$('neck-smooth').addEventListener('change', () => state.neck && updateNeckLine());
-
-function neckPaintAt(p, erase) {
-  const faces = viewer.facesInCircle(p.x, p.y, +$('neck-brush').value / 2);
-  applyFaces(faces, erase ? 'remove' : 'add');
-}
-
-function neckFromPaint() {
-  const painted = state.mesh.verticesOf(state.selection);
-  const neck = neckFromPainting(state.mesh, painted);
-  if (!neck) {
-    state.neck = null;
-    updateNeckLine();
-    return;
-  }
-  neck.painted = painted;
-  state.neck = neck;
-  state.neckThrough = -1;
-  updateNeckLine();
-  if (state.neckLoop && neck.coverage < 0.75) $('neck-info').textContent += ' The painting doesn’t go all the way round yet – the rest of the line was guessed; paint more to steer it.';
-}
-
-// The cut line around the chosen neck.
-function updateNeckLine() {
-  const neck = state.neck;
-  state.neckLoop = null;
-  state.neckLoopPts = null;
-  state.neckLine = null;
-  $('neck-cut').disabled = true;
-  if (!neck) {
-    $('neck-info').textContent = '';
-    showCutPlane();
-    return;
-  }
-  const loop = seamLoop(state.mesh, neck, neckOptions());
-  if (!loop) {
-    $('neck-info').textContent = 'No closed line found around this spot – click closer to the thinnest part, or give it more room to wander.';
-    showCutPlane();
-    return;
-  }
-  state.neckLoop = loop;
-  const P = state.mesh.positions;
-  state.neckLoopPts = loop.map((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
-  // A clean line: smoothed, cut through the triangles along it.
-  state.neckLine = null;
-  const smooth = +$('neck-smooth').value / 100;
-  if (smooth > 0) {
-    const line = smoothLine(state.mesh, neck, loop, { smooth });
-    if (line) {
-      state.neckLine = line;
-      state.neckLoopPts = line.pts;
-    }
-  }
-  $('neck-info').textContent = `Neck Ø ${fmtMM(2 * neck.radius)} mm – the yellow line goes once around it (${loop.length} edges). Not where you want it? Click right on the spot it should pass, press “Neck meets collar”, or paint it. Then cut.`;
-  $('neck-cut').disabled = false;
-  showCutPlane();
-}
-
-function chooseNeck(neck, through = state.neckThrough) {
-  state.neck = neck;
-  state.neckThrough = through;
-  updateNeckLine();
-}
-
-function neckClick(p) {
-  const point = viewer.pointAt(p.x, p.y);
-  const face = viewer.faceAt(p.x, p.y);
-  if (!point || face < 0) return;
-  // The cut passes through the clicked spot: its nearest corner.
-  const P = state.mesh.positions, I = state.mesh.indices;
-  let through = -1, best = Infinity;
-  for (let k = 0; k < 3; k++) {
-    const v = I[face * 3 + k];
-    const d = Math.hypot(P[v * 3] - point.x, P[v * 3 + 1] - point.y, P[v * 3 + 2] - point.z);
-    if (d < best) {
-      best = d;
-      through = v;
-    }
-  }
-  // A click near the chosen neck just moves the line through that spot.
-  const near = state.neck && !state.neck.painted && Math.hypot(...state.neck.center.map((c, k) => c - point.getComponent(k))) < state.neck.radius * 4;
-  if (near) {
-    state.neckThrough = through;
-    updateNeckLine();
-    return;
-  }
-  busy(async () => {
-    await stage('Looking for the neck…', null);
-    const neck = findNeckAt(state.mesh, point.toArray());
-    if (!neck) {
-      state.neck = null;
-      updateNeckLine();
-      $('neck-info').textContent = 'No neck here – click on a narrow part that goes all the way round (a neck, a wrist, a handle).';
-      return;
-    }
-    state.neckThrough = through;
-    chooseNeck(neck);
-  });
-}
-
-$('neck-find').addEventListener('click', () => {
-  if (!state.mesh) return;
-  busy(async () => {
-    await stage('Searching the model for necks…', null);
-    // A standing figure: its joints (neck, shoulders, hips) first.
-    const body = analyseBody();
-    const joints = body ? body.joints.map((j) => Object.assign(j.neck, { jointName: j.name, head: j.name.startsWith('Neck') })) : [];
-    const others = findNecks(state.mesh).filter((n) => !joints.some((j) => Math.hypot(...j.center.map((c, k) => c - n.center[k])) < Math.max(j.radius, n.radius) * 2));
-    const necks = [...joints, ...others];
-    const list = $('neck-list');
-    list.innerHTML = '';
-    if (!necks.length) {
-      list.textContent = 'No clear necks found – click on one yourself.';
-      return;
-    }
-    necks.forEach((neck, i) => {
-      const b = document.createElement('button');
-      b.className = 'cut-option';
-      b.innerHTML = '<span class="dot"></span><span class="label"></span><span class="what"></span>';
-      const name = neck.jointName || (neck.head ? 'Neck (head)' : 'Narrow part');
-      b.querySelector('.label').textContent = name.replace(/ \(.*\)/, '').replace(/ – .*/, '');
-      b.querySelector('.what').textContent = neck.jointName
-        ? `${name.includes('–') ? name.split('– ')[1] + ' · ' : neck.head ? 'below the head · ' : ''}Ø ${fmtMM(2 * neck.radius)} mm`
-        : neck.head
-          ? `Ø ${fmtMM(2 * neck.radius)} mm · below the head`
-          : `Ø ${fmtMM(2 * neck.radius)} mm · ${neck.ratio.toFixed(1)}× narrower than around it (an arm, a leg…)`;
-      b.addEventListener('click', () => {
-        for (const o of list.children) o.classList.toggle('active', o === b);
-        chooseNeck(neck, -1);
-      });
-      list.append(b);
-    });
-    list.firstChild.click();
-  });
-});
-
-for (const id of ['neck-follow', 'neck-width']) {
-  $(id).addEventListener('input', (e) => ($(id + '-val').textContent = e.target.value + '%'));
-  $(id).addEventListener('change', () => state.neck && updateNeckLine());
-}
-
-function doNeckCut() {
-  const { neck, neckLoop } = state;
-  if (!neck || !neckLoop) return;
-  let result = null;
-  edit((mesh) => {
-    try {
-      const loop = state.neckLine ? splitAlongLine(mesh, state.neckLine) : neckLoop;
-      result = cutAlongLoop(mesh, loop, neck, neckConnector());
-      return 'Cut along the neck – both pieces are closed';
-    } catch (err) {
-      toast(err.message);
-    }
-  });
-  if (!result) return;
-  // The cut-off piece becomes a model of its own.
-  const next = Int32Array.from(state.faceGroup);
-  let id = -1;
-  result.faces.forEach((v, t) => {
-    if (!v) return;
-    if (id < 0) id = newGroupId(`${groupName(next[t])} (cut off)`);
-    next[t] = id;
-  });
-  state.faceGroup = next;
-  state.lastNeckCut = { group: id, normal: neck.normal, center: neck.center, radius: neck.radius };
-  renderObjectList();
-  updateExportLabels();
-  state.neck = null;
-  state.neckLoop = null;
-  state.neckLoopPts = null;
-  state.neckLine = null;
-  $('neck-list').innerHTML = '';
-  $('neck-cut').disabled = true;
-  $('neck-apart').hidden = false;
-  const c = result.connector;
-  const kind = c?.shape === 'square' ? 'square' : 'round';
-  const pinText = c
-    ? ` ${kind === 'square' ? 'Square' : 'Round'} pin ${fmtMM(c.size)} × ${fmtMM(c.length)} mm (tip ${fmtMM(c.taper)} % narrower) on the main piece; ${kind} hole ${fmtMM(c.holeSize)} mm, ${fmtMM(c.holeDepth)} mm deep in the cut-off piece.`
-    : result.note
-      ? ' ' + result.note
-      : '';
-  $('neck-info').textContent = 'Done – the cut-off piece is now a separate model.' + pinText + ' “Pull apart” moves it away so you can see the joint; Export ▾ downloads both.';
-  if (state.neckPainting) setNeckPainting(false);
-  showCutPlane();
-}
-$('neck-cut').addEventListener('click', doNeckCut);
-
-$('neck-apart').addEventListener('click', () => {
-  const lc = state.lastNeckCut;
-  if (!lc || !state.mesh) return;
-  const mask = new Uint8Array(state.mesh.triangleCount);
-  let any = false;
-  state.faceGroup.forEach((g, t) => g === lc.group && (mask[t] = 1) && (any = true));
-  if (!any) return;
-  // Away from the rest: along the neck axis, towards the piece's side.
-  const b = state.mesh.bounds(mask);
-  const mid = [0, 1, 2].map((k) => (b.min[k] + b.max[k]) / 2);
-  const side = Math.sign(lc.normal.reduce((sum, x, k) => sum + x * (mid[k] - lc.center[k]), 0)) || 1;
-  const gap = lc.radius * 2;
-  transformBurst(() => state.mesh.translate(...lc.normal.map((x) => x * side * gap), state.mesh.verticesOf(mask)));
-  state.moving = false;
-  viewer.frame();
-});
 
 function cutOptions() {
   return {
@@ -2688,7 +1978,7 @@ function connectorText(conns) {
 let analysisTimer = null;
 function scheduleCutAnalysis() {
   clearTimeout(analysisTimer);
-  if (state.tool !== 'cut' || !state.mesh || state.cutKind === 'neck') return;
+  if (state.tool !== 'cut' || !state.mesh) return;
   $('cut-done').hidden = true;
   setCutStep(1);
   if (state.mesh.triangleCount > 400000) {
@@ -2703,7 +1993,6 @@ function scheduleCutAnalysis() {
 }
 
 function runCutAnalysis() {
-  if (state.cutKind === 'neck') return;
   const box = $('cut-analysis');
   let result, options = null;
   try {
@@ -3158,8 +2447,7 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === '-') {
     runSelection('shrink');
   } else if (e.key === 'Enter' && state.tool === 'cut') {
-    if (state.cutKind === 'neck') doNeckCut();
-    else doCut();
+    doCut();
   } else if (e.key.toLowerCase() === 's') {
     splitSelection();
   } else if (e.key.toLowerCase() === 'w') {
@@ -3197,7 +2485,7 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), Math.max(3000, String(msg).length * 45));
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
 setMode('normal');

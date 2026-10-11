@@ -74,28 +74,25 @@ other computer – `localhost` only works on the Pi itself.
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
 
-### AI (optional) – Claude, ChatGPT, Gemini or a local AI
+### AI object recognition (optional)
 
-The AI features (*Ask AI to identify objects*, *Split into printable parts*)
-send a few rendered views of the model to an AI, which names the parts and
-groups the pieces. Choose the AI in **✨ AI → AI settings…**:
+The *Ask AI to identify objects* button sends a few rendered views of the model
+to Claude, which names the detected objects (e.g. "Candle"), groups pieces that
+belong together and suggests what to keep or remove – optionally based on a
+goal you type, like "remove the candles". It runs on the server, so the API key
+is never sent to the browser.
 
-| AI | Key from | Notes |
-|---|---|---|
-| **Claude** (Anthropic) – default | console.anthropic.com | model `claude-opus-5-5` |
-| **ChatGPT** (OpenAI) | platform.openai.com/api-keys | any vision model, e.g. `gpt-4o` |
-| **Gemini** (Google) | aistudio.google.com/apikey | free tier (no card, rate-limited, Flash models only), default `gemini-flash-latest` (always the current Flash model) |
-| **OpenRouter** | openrouter.ai/keys | free option: model `openrouter/free` picks a free model that can see images (rate-limited) |
-| **Local / other** | – (usually no key) | any OpenAI-compatible server: **Ollama** or **LM Studio** on a PC, with a vision model (e.g. `ollama pull llama3.2-vision`, address `http://<PC>:11434/v1`). Free and offline, but less accurate; a Raspberry Pi is too slow to run one. |
+1. Get an API key at <https://console.anthropic.com/>.
+2. On the machine running the app (e.g. the Pi), create a file `.env` in this
+   folder containing:
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+   (or `export ANTHROPIC_API_KEY=...` before `npm start`). `.env` is ignored by git.
+3. Restart `npm start`.
 
-Paste the key, **Save**, then **Test** – it sends a tiny request and shows
-the answer. Settings and keys are stored on the machine running the app
-(`ai-settings.json` in this folder, readable only by its owner and ignored
-by git; the desktop app keeps it in its data folder) and are never sent to the
-browser. Environment variables still work too (`ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `GEMINI_API_KEY`, also from `.env`). Everything else in the
-app works without any AI. Each analysis is one request with a few images –
-typically a few cents with the paid AIs.
+Each analysis is one request to the Claude Opus 5.5 model with four images –
+typically a few cents. Everything else in the app works without a key.
 
 ## Modes
 
@@ -112,110 +109,12 @@ The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
   Leaving Edit makes everything solid models again: holes left open are
   closed (*⚙ → Close holes when leaving Edit mode*) and the selection grows to
   whole models.
-- **Cut** – *Flat plane*: the plane cut with pins, holes or dowels.
-  *Around a neck*: separates a head (an arm, a handle…) where it is
-  thinnest – see **Neck cut** below. The two halves become
+- **Cut** – the plane cut with pins, holes or dowels. The two halves become
   separate models (the top one is named “… (top)”). Dowels are made lying on
   the plate right beside the model, together as one more model (“Dowels”),
   so they can be moved or exported in one go.
 
 Undo/redo covers grouping too.
-
-## Printable parts (AI)
-
-Edit mode → **Split into printable parts (AI)** (also in the ✨ AI menu)
-splits a figure the way creators split their kits – head, hair, jacket,
-arms, hands, skirt, legs, shoes, a table or base…:
-
-1. The model is cut into ~80 small numbered patches along its folds (big
-   smooth areas are divided further, with borders that prefer creases).
-2. The AI gets two plain views of the figure and six views of the numbered
-   patches, and puts every patch into a part, choosing separations at
-   natural seams – clothing edges, collars, cuffs, where a shoe meets a leg,
-   where the figure touches a prop. Patches it leaves out join the part they
-   border most.
-3. The parts are coloured and named in the Objects tree – check them, then
-   **Separate the parts**: each becomes its own model, closed where it was
-   cut (borders are tidied first so every piece comes out watertight). Undo
-   brings everything back.
-
-Needs an AI set up in ✨ AI → AI settings (Claude, ChatGPT, Gemini or a local AI – see above). Without it,
-**Find body parts** below works from the shape alone.
-
-## Body parts
-
-For a standing figure (head on top, Z up), Edit mode → **Find body parts**
-splits it into **Head, Torso, two Arms and two Legs**. The figure is sliced
-into many horizontal levels; each level cuts it into rings, and rings that
-line up from level to level form tubes: the head is what's above the neck,
-the legs rise from the floor until they join, the arms hang beside the torso,
-and the rest is the torso. The parts are coloured and listed in the Objects
-tree – click one to select it, hide it, or export it. Left/right are as seen
-in the *Front* view.
-
-The joints – **neck, shoulders, hips** – are listed first under Cut →
-Around a neck → *Find necks automatically*, so any part can be cut off there
-with a clean line and a pin.
-
-A base the figure stands on is found too (a wide ring at the bottom whose
-area drops sharply where the feet stand on it), and the ankles when the legs
-get clearly narrower above the feet.
-
-## Split a figure into printable parts
-
-Edit mode → **Split figure into parts** cuts a standing figure at its joints,
-like a creator splits a figure for printing – no AI needed:
-
-- tick what comes off: **Head** (by default where the neck meets the collar),
-  **Legs** at the hips, **Feet** at the ankles, the **Base** (a flat cut just
-  above it) and **Arms** at the shoulders. The preview colours the parts;
-  what isn't cut off stays with the torso. Arms are off by default – keep
-  them on the torso when the hands touch the body (in pockets, on the hips);
-- **Cut into parts** cuts along a smooth line around each joint (see Neck
-  cut), closes both sides and adds a tapered round or square pin with a
-  matching hole (tip narrower and hole wider as set under Cut → Around a
-  neck). The base gets pins standing up into the feet;
-- every part becomes its own named model. A part joined to the rest
-  somewhere else too (a hand in a pocket) is left on, with a note.
-
-## Neck cut
-
-Cut mode → **Around a neck** separates a part where the shape narrows – a
-head from its body, an arm at the shoulder, a handle – along a line that runs
-around the neck and follows the surface, instead of a flat cut through the
-whole model. Three ways to place the line:
-
-- **Click on the neck.** The line goes around it **through the spot you
-  click**, following the surface's creases. To cut where the neck meets the
-  clothes, click right on that line (click again to move it).
-  **Neck meets collar** looks for the joint between the neck and clothes: it
-  finds which side the body is on, searches far that way (hardly towards the
-  head), keeps to the neck's own surface and follows the fold where the
-  collar presses on the neck – also when the collar dips at the front.
-- **Find necks automatically:** the head's neck comes first (*Neck (head)*):
-  found from the top of the model down – through the head, to where it
-  narrows, before the shoulders. Other narrow spots (arms, legs, sleeves)
-  follow as *Narrow part*, found by slicing the model from many directions.
-- **Paint the line:** drag over the model where the cut should go (right-drag
-  turns the view, Ctrl+drag erases). The line follows the painting and fills
-  gaps; paint all the way round, or just one side and let it guess the rest.
-
-*Follow creases* (0–100 %) and *Room to wander* fine-tune the line. Creases
-are judged over a few millimetres, so the bumps of a scanned model don't pull
-the line around. **Smoothness** turns the line into a clean curve (0 % =
-along the model's own edges): the triangles are cut along it, so the cut edge
-is smooth instead of zig-zagging along the scan's triangles.
-
-**Connector:** a **round** or **square pin** on the main piece and a matching
-hole in the cut-off piece, in the middle of the cut. The pin's tip is *1 %*
-narrower than its base (*Tip narrower by*) so it slides in; the hole is
-*0.2 mm* wider (*Hole wider by*) and a bit deeper. Size and length are
-automatic (0) or set by you, and checked so the hole never breaks through.
-
-**Cut along the line** (or Enter): the pieces are separated along the mesh's
-own edges and both are closed with the same surface, so they fit back
-together seamlessly. The cut-off piece (the smaller one, by surface) becomes a
-model of its own; **Pull apart** moves it away to show the joint.
 
 ## Fix model
 
@@ -442,7 +341,5 @@ holes, parts and whether the mesh is watertight.
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.
 - `src/floating.js` – finds parts floating in mid-air.
-- `src/neck.js` – finds necks and cuts around them along the surface.
-- `src/body.js` – finds the body parts (head, torso, arms, legs) of a standing figure.
 - `desktop/` – the Windows app (Electron): `main.cjs` serves the built app
   from a local web server in its own window.

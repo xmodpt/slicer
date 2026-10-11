@@ -60,7 +60,7 @@ function serve(req, res) {
   }
   if (url.pathname.startsWith('/api/ai/')) {
     import(pathToFileURL(path.join(__dirname, 'server', 'ai.js')).href)
-      .then(({ aiMiddleware }) => aiMiddleware(apiKey, { settingsFile: path.join(app.getPath('userData'), 'ai-settings.json') })(req, res, () => {
+      .then(({ aiMiddleware }) => aiMiddleware(apiKey)(req, res, () => {
         res.statusCode = 404;
         res.end();
       }))

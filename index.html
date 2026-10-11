@@ -18,31 +18,6 @@
       </div>
     </div>
 
-    <!-- AI settings -->
-    <div id="ai-settings" class="modal" hidden>
-      <div class="modal-box left">
-        <button class="modal-close" id="ai-settings-close" title="Close">×</button>
-        <h2>AI settings</h2>
-        <p class="muted">The AI looks at pictures of your model to name its parts. Pick any AI you have an account with – or a free one running on your own computer.</p>
-        <label class="field">AI <select id="ai-provider"></select></label>
-        <label class="field">Model <input id="ai-model" type="text" autocomplete="off" spellcheck="false" /></label>
-        <label class="field" id="ai-baseurl-row">Server address <input id="ai-baseurl" type="text" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.20:11434/v1" /></label>
-        <label class="field" id="ai-key-row">API key <input id="ai-key" type="password" autocomplete="off" spellcheck="false" /></label>
-        <p class="muted" id="ai-key-help"></p>
-        <div class="row">
-          <button id="ai-save" class="primary">Save</button>
-          <button id="ai-test" title="Send a tiny request to check the AI answers">Test</button>
-          <button id="ai-clearkey" title="Forget the saved key for this AI">Remove key</button>
-        </div>
-        <p id="ai-status" class="ai-status"></p>
-        <details class="muted">
-          <summary>Free, on your own computer (no key)</summary>
-          <p>Install <b>Ollama</b> (ollama.com) on a PC with a decent graphics card, then run <code>ollama pull llama3.2-vision</code>. Start it so other devices can reach it (<code>OLLAMA_HOST=0.0.0.0 ollama serve</code>), choose <i>Local / other</i> here and set the address to <code>http://&lt;that PC's IP&gt;:11434/v1</code>. LM Studio works the same way (address ending in <code>/v1</code>). Local models are less accurate than Claude or ChatGPT for this, and a Raspberry Pi is too slow to run one.</p>
-        </details>
-        <p class="muted">Keys are saved on the computer running the app (the Pi, or the desktop app's data folder) and never sent to the browser.</p>
-      </div>
-    </div>
-
     <!-- About -->
     <div id="about" class="modal" hidden>
       <div class="modal-box">
@@ -140,11 +115,9 @@
             <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>AI
           </button>
           <div class="menu-panel wide">
-            <p class="menu-title">Identify objects with AI <button id="ai-settings-open" class="link-btn" title="Choose Claude, ChatGPT, Gemini or a local AI, and enter its key">AI settings…</button></p>
-            <p id="ai-provider-line" class="muted"></p>
+            <p class="menu-title">Identify objects with AI</p>
             <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
             <button id="ai-run" class="primary">Ask AI to identify objects</button>
-            <button id="ai-kit" title="Split the model into the parts a creator would print separately – head, hair, clothes, arms, shoes, table…">Split into printable parts</button>
             <p id="ai-summary" class="muted"></p>
             <button id="ai-select-remove" hidden>Select everything the AI suggests removing</button>
           </div>
@@ -239,28 +212,6 @@
               <button id="sel-shrink" title="−">Shrink</button>
             </div>
             <p class="hint">Shift adds, Ctrl removes. Drag on empty space to rotate the view. Group the selected parts into one model with Ctrl+G, ungroup with Ctrl+Shift+G.</p>
-            <div class="row">
-              <button id="body-find" title="For a standing figure: find the head, torso, arms and legs (from its shape)">Find body parts</button>
-              <button id="ai-kit-edit" title="Let AI split the model into the parts a creator would print separately – head, hair, clothes, arms, shoes, table… (needs an API key)">Split into printable parts (AI)</button>
-            </div>
-            <button id="kit-plan" title="Cut a standing figure into printable parts at its joints – head, legs, base… – each closed with a pin and hole">Split figure into parts</button>
-            <div id="kit-ui" class="kit-ui" hidden>
-              <div class="sub-head">Cut off</div>
-              <label class="check"><input id="kit-head" type="checkbox" checked /> Head</label>
-              <label class="check sub" title="Cut where the neck meets the clothes instead of at the thinnest part of the neck"><input id="kit-collar" type="checkbox" checked /> where the neck meets the collar</label>
-              <label class="check"><input id="kit-legs" type="checkbox" checked /> Legs (at the hips)</label>
-              <label class="check"><input id="kit-feet" type="checkbox" /> Feet / shoes (at the ankles)</label>
-              <label class="check"><input id="kit-base" type="checkbox" checked /> Base (flat cut)</label>
-              <label class="check" title="Off: the arms stay on the torso – best when the hands touch the body (in pockets, on the hips)"><input id="kit-arms" type="checkbox" /> Arms (at the shoulders)</label>
-              <label class="field">Pins <select id="kit-pin">
-                <option value="round" selected>Round, tapered</option>
-                <option value="square">Square, tapered</option>
-                <option value="none">None – glue only</option>
-              </select></label>
-              <p id="kit-info" class="hint"></p>
-              <button id="kit-cut" class="primary">Cut into parts</button>
-            </div>
-            <button id="ai-separate" class="primary" hidden title="Make each part its own model, closed where it was cut">Separate the parts</button>
           </div>
 
           <div class="card-body" data-card="block">
@@ -327,44 +278,6 @@
           </div>
 
           <div class="card-body" data-card="cut">
-            <div class="seg cut-kinds">
-              <button data-cutkind="plane" class="active" title="A flat cut through the whole model, with pins, holes or dowels">Flat plane</button>
-              <button data-cutkind="neck" title="Separate a head, arm, handle… around its neck, following the surface">Around a neck</button>
-            </div>
-
-            <div id="cut-neck-ui" hidden>
-              <p class="hint">Click on the <b>neck</b> – the cut line (yellow) goes around it <b>through the spot you click</b> and follows the surface's creases, so the joint hides. To cut where the neck meets the clothes, click right on that line; click again to move it. Both pieces are closed with the same surface, so they fit back seamlessly.</p>
-              <div class="row">
-                <button id="neck-find" title="Look for necks on the whole model">Find necks automatically</button>
-                <button id="neck-paint" title="Paint the cut line yourself – drag around the neck (right-drag turns the view)">Paint the line</button>
-              </div>
-              <div id="neck-paint-ui" hidden>
-                <p class="hint">Drag over the model to paint where the cut goes – all the way round (turn the view with the right mouse button). Ctrl+drag erases. The line follows your painting and fills small gaps.</p>
-                <label class="field">Brush <input id="neck-brush" type="range" min="6" max="80" value="18" /></label>
-                <button id="neck-paint-clear">Clear painting</button>
-              </div>
-              <div id="neck-list" class="neck-list"></div>
-              <label class="field" title="0 = the narrowest flat ring; 100 = follow folds and creases in the surface">Follow creases <input id="neck-follow" type="range" min="0" max="100" value="60" /> <span id="neck-follow-val">60%</span></label>
-              <label class="field" title="How far the line may stray from the narrowest ring along the neck">Room to wander <input id="neck-width" type="range" min="30" max="400" value="90" /> <span id="neck-width-val">90%</span></label>
-              <label class="field" title="0 = follow the model's edges exactly; higher = a cleaner, smoother line (the triangles are cut along it)">Smoothness <input id="neck-smooth" type="range" min="0" max="100" value="60" /> <span id="neck-smooth-val">60%</span></label>
-              <button id="neck-collar" title="Find the joint between the neck and the clothes: looks towards the body for the fold where the collar meets the neck">Neck meets collar</button>
-              <div class="sub-head">Connector</div>
-              <label class="field">Pin <select id="neck-pin">
-                <option value="none">None – glue only</option>
-                <option value="round" selected>Round pin</option>
-                <option value="square">Square pin</option>
-              </select></label>
-              <label class="field" title="Ø of a round pin or width of a square one; 0 = automatic">Size <input id="neck-pin-size" type="number" min="0" step="0.5" value="0" /> mm · Length <input id="neck-pin-len" type="number" min="0" step="0.5" value="0" /> mm</label>
-              <label class="field" title="How much narrower the pin's tip is than its base, so it slides in easily">Tip narrower by <input id="neck-taper" type="number" min="0" max="30" step="0.5" value="1" /> %</label>
-              <label class="field" title="How much wider the hole is than the pin">Hole wider by <input id="neck-tol" type="number" min="0" step="0.05" value="0.2" /> mm</label>
-              <p id="neck-info" class="hint"></p>
-              <div class="row">
-                <button id="neck-cut" class="primary" disabled title="Enter">Cut along the line</button>
-                <button id="neck-apart" hidden title="Move the cut-off piece away so the joint can be seen">Pull apart</button>
-              </div>
-            </div>
-
-            <div id="cut-plane-ui">
             <ol class="guide" id="cut-guide">
               <li data-step="1"><b>Place the plane</b> – drag the orb (arrow slides, rings tilt), pick an axis, or click the model.</li>
               <li data-step="2"><b>Check the connectors</b> – the list below and the preview on the plane show what each cut area gets.</li>
@@ -399,7 +312,6 @@
               <button id="cut-reset" title="Back to a flat Z cut">Reset</button>
               <button id="cut-flip" title="Swap which half gets the pins">Flip</button>
               <button id="cut-go" class="primary" title="Enter">Cut</button>
-            </div>
             </div>
 
             <div id="cut-done" class="done" hidden>
