@@ -139,3 +139,16 @@ test('tubes between points and hulls: a tree from its example builds as one clos
   assert.ok(solid({ hull: [{ sphere: { r: 10 } }, { sphere: { r: 6 }, translate: [0, 0, 15] }] }).stats().watertight);
   assert.ok(solid({ type: 'branch', start: [0, 0, 0], end: [0, 10, 10], radius: 2 }).stats().watertight, 'alias');
 });
+
+test('the tree node grows a closed, one-piece tree of the asked height, flat on the plate', () => {
+  const mesh = solid({ tree: { height: 80, levels: 3, roots: 4, leaves: 'none', seed: 2 } });
+  const s = mesh.stats();
+  assert.ok(s.watertight && s.parts === 1);
+  const b = mesh.bounds();
+  assert.ok(Math.abs(b.min[2]) < 1e-3 && b.max[2] > 70 && b.max[2] < 95, `height ${b.max[2]}`);
+  // Same settings, same tree; another seed, another tree.
+  const again = solid({ tree: { height: 80, levels: 3, roots: 4, leaves: 'none', seed: 2 } });
+  assert.equal(again.triangleCount, mesh.triangleCount);
+  const other = solid({ type: 'bonsai', height: 80, levels: 3, seed: 9, leaves: true });
+  assert.ok(other.stats().watertight && other.stats().parts === 1);
+});

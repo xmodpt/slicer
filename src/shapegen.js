@@ -16,9 +16,27 @@
 
 // The recipe language, as told to the AI (kept in server/ so the desktop
 // app's server has it too).
+import { buildTree, TREE_DEFAULTS } from './tree.js';
+
 export { RECIPE_HELP } from '../server/recipe-help.js';
 
 const MAX_NODES = 2000;
+const isObjLike = (v) => v && typeof v === 'object' && !Array.isArray(v);
+// Tree settings from a recipe, in range.
+function treeOptions(a) {
+  const o = {};
+  const n = (k, min, max) => {
+    if (a[k] === undefined) return;
+    const x = Number(a[k]);
+    if (Number.isFinite(x)) o[k] = Math.min(max, Math.max(min, x));
+  };
+  n('height', 10, 2000); n('trunks', 1, 5); n('levels', 1, 7); n('branching', 0, 5); n('spread', 5, 90);
+  n('gnarl', 0, 1.5); n('lean', -45, 45); n('thickness', 0.3, 3); n('roots', 0, 12); n('bark', 0, 1.5);
+  n('leafSize', 0, 100); n('minTwig', 0.3, 5); n('seed', 0, 1e9);
+  if (['none', 'clusters', 'crown'].includes(a.leaves)) o.leaves = a.leaves;
+  else if (a.leaves === true) o.leaves = 'clusters';
+  return { ...TREE_DEFAULTS, ...o };
+}
 const num = (v, name, { min = -1e5, max = 1e5, def } = {}) => {
   const x = v === undefined && def !== undefined ? def : Number(v);
   if (!Number.isFinite(x)) throw new Error(`${name} must be a number`);
@@ -96,6 +114,13 @@ export function buildShape(wasm, node, { segments = 64, warnings = null } = {}) 
         const twist = num(a.twist, `${path}.extrude.twist`, { def: 0 });
         const st = num(a.scaleTop, `${path}.extrude.scaleTop`, { min: 0, max: 100, def: 1 });
         m = cs.extrude(h, twist ? Math.max(8, Math.round(Math.abs(twist) / 5)) : 0, twist, [st, st]);
+        break;
+      }
+      case 'tree': {
+        // A whole tree from the tree generator (tree.js): trunk(s), forking
+        // branches with bark, roots, leaves – far more natural than shapes.
+        const t = buildTree(wasm, isObjLike(a) ? treeOptions(a) : {});
+        m = t;
         break;
       }
       case 'tube': {
@@ -228,6 +253,7 @@ const KIND_ALIASES = {
   difference: 'difference', subtract: 'difference', minus: 'difference', cut: 'difference',
   intersection: 'intersection', intersect: 'intersection',
   around: 'around', circular: 'around', polar: 'around', polar_array: 'around', radial: 'around', circular_array: 'around',
+  tree: 'tree', bush: 'tree', shrub: 'tree', bonsai: 'tree', plant: 'tree',
   tube: 'tube', rod: 'tube', branch: 'tube', limb: 'tube', capsule: 'tube', line: 'tube', segment: 'tube',
   hull: 'hull', convex_hull: 'hull', blob: 'hull', wrap: 'hull',
   row: 'row', linear: 'row', linear_array: 'row', array: 'row', repeat: 'row',

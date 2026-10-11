@@ -36,6 +36,27 @@
         <textarea id="make-prompt" rows="2" placeholder="What should I make? (Enter sends, Shift+Enter new line)"></textarea>
         <button id="make-go" class="primary">Make</button>
       </div>
+      <details id="tree-gen" class="tree-gen">
+        <summary>🌳 Tree generator – no AI needed</summary>
+        <div class="tree-grid">
+          <label>Height <input id="tg-height" type="number" min="20" max="1000" value="120" /> mm</label>
+          <label>Trunks <input id="tg-trunks" type="number" min="1" max="5" value="1" /></label>
+          <label>Branch levels <input id="tg-levels" type="range" min="2" max="6" value="5" /></label>
+          <label>Branches <input id="tg-branching" type="range" min="0" max="4" value="2" /></label>
+          <label>Spread <input id="tg-spread" type="range" min="15" max="75" value="38" /></label>
+          <label>Gnarled <input id="tg-gnarl" type="range" min="0" max="100" value="35" /></label>
+          <label>Thickness <input id="tg-thickness" type="range" min="50" max="220" value="100" /></label>
+          <label>Lean <input id="tg-lean" type="range" min="0" max="35" value="0" /></label>
+          <label>Roots <input id="tg-roots" type="number" min="0" max="12" value="5" /></label>
+          <label>Bark <input id="tg-bark" type="range" min="0" max="100" value="60" /></label>
+          <label>Leaves <select id="tg-leaves"><option value="none">None (bare)</option><option value="clusters">Sprays</option><option value="crown">Dense</option></select></label>
+          <label>Thinnest twig <input id="tg-minTwig" type="number" min="0.4" max="3" step="0.1" value="0.9" /> mm</label>
+        </div>
+        <div class="row">
+          <button id="tg-grow" class="primary">Grow tree</button>
+          <button id="tg-new" title="Same settings, a different tree">🎲 Another one</button>
+        </div>
+      </details>
       <div class="make-opts">
         <label class="check" title="Off: start a new object from scratch"><input id="make-refine" type="checkbox" disabled /> Change the last one</label>
         <label class="check" title="Off: the new object replaces what is open"><input id="make-add" type="checkbox" checked /> Add next to the open model</label>

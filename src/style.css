@@ -1610,3 +1610,10 @@ svg.logo .r { fill: #008232; stroke: none; }
 .make-input textarea { flex: 1; resize: vertical; min-height: 38px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
 .make-attach { display: grid; place-items: center; width: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; font-size: 16px; }
 .make-opts { display: flex; gap: 14px; font-size: 12px; }
+
+.tree-gen summary { cursor: pointer; font-size: 12px; color: var(--accent-2); }
+.tree-gen[open] { padding-bottom: 4px; }
+.tree-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 6px 0; font-size: 12px; }
+.tree-grid label { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.tree-grid input[type='number'] { width: 64px; }
+.tree-grid input[type='range'] { flex: 1; min-width: 60px; }

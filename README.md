@@ -132,6 +132,23 @@ result is always a closed, printable solid in mm, standing on the plate.
 - Free: choose **Gemini** in AI settings with a free key from
   aistudio.google.com/apikey (no card). A request is text plus the pictures.
 
+### Tree generator (no AI needed)
+
+Trees are grown by an algorithm (`src/tree.js`), not drawn from shapes: one
+or more trunks fork again and again into tapering, bending branches (each
+level thinner, like real trees), with bark grooves, roots spreading on the
+ground (cut flat for the print bed) and, if wanted, sprays of leaves on the
+twigs. Every branch is a swept tube; manifold-3d joins them into one closed
+solid.
+
+- **✨ AI → Make a new object… → 🌳 Tree generator**: height, trunks, branch
+  levels, branches, spread, gnarled, thickness, lean, roots, bark, leaves
+  (none / sprays / dense) and the thinnest twig (keep it ≥ 0.8 mm for FDM).
+  **Grow tree**, or **🎲 Another one** for a different tree with the same
+  settings (with *Change the last one* ticked it replaces the last tree).
+- Through the AI: “a gnarly bare tree”, “a bonsai with leaves”, “three
+  birches on a base” – the AI picks the generator's settings.
+
 ## Modes
 
 The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
@@ -369,6 +386,7 @@ holes, parts and whether the mesh is watertight.
 - `src/segment.js` – splits the mesh into suggested objects at concave creases.
 - `src/samples.js` – the built-in cake-with-candles sample.
 - `src/shapegen.js` – builds the AI's shape recipes into solids (manifold-3d).
+- `src/tree.js` – the tree generator (branching skeleton, bark, roots, leaves).
 - `server/ai.js` – server-side AI requests (Claude, OpenAI-compatible) for *Ask AI*
   and *Make a new object*, and the AI settings (hooked into the Vite server by
   `vite.config.js`).

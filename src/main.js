@@ -1463,6 +1463,48 @@ async function placeMade(soup, name, refine) {
   viewer.frame();
 }
 
+// Tree generator without AI: the settings in the panel.
+let treeSeed = 1;
+async function growTreeFromPanel(newSeed) {
+  if (make.busy) return;
+  if (newSeed) treeSeed = Math.floor(Math.random() * 1e6);
+  const v = (id) => +$('tg-' + id).value;
+  const recipe = {
+    tree: {
+      height: v('height'), trunks: v('trunks'), levels: v('levels'), branching: v('branching'), spread: v('spread'),
+      gnarl: v('gnarl') / 100, thickness: v('thickness') / 100, lean: v('lean'), roots: v('roots'), bark: v('bark') / 100,
+      leaves: $('tg-leaves').value, minTwig: v('minTwig'), seed: treeSeed,
+    },
+  };
+  make.busy = true;
+  $('tg-grow').disabled = $('tg-new').disabled = true;
+  const wait = makeLog('Growing the tree…', 'muted');
+  await new Promise((r) => setTimeout(r, 30)); // let the message show
+  try {
+    const wasm = await manifoldModule();
+    const solid = buildShape(wasm, recipe);
+    const soup = manifoldToSoup(solid);
+    solid.delete();
+    // Trying settings one after the other replaces the last tree.
+    const refine = make.last?.tree && $('make-refine').checked;
+    await placeMade(soup, 'Tree', refine);
+    make.last = { recipe, name: 'Tree', tree: true };
+    $('make-refine').disabled = false;
+    $('make-refine').checked = true;
+    wait.remove();
+    makeLog(`✓ Tree ${v('height')} mm, seed ${treeSeed} (${(soup.length / 9).toLocaleString()} triangles, closed)`, 'ok');
+  } catch (err) {
+    wait.remove();
+    makeLog(escapeHTML(err.message || err), 'bad');
+  } finally {
+    make.busy = false;
+    $('tg-grow').disabled = $('tg-new').disabled = false;
+  }
+}
+$('tg-grow').addEventListener('click', () => growTreeFromPanel(false));
+$('tg-new').addEventListener('click', () => growTreeFromPanel(true));
+for (const el of document.querySelectorAll('#tree-gen input, #tree-gen select')) el.addEventListener('keydown', (e) => e.stopPropagation());
+
 $('make-open').addEventListener('click', openMakePanel);
 $('make-close').addEventListener('click', () => ($('make-panel').hidden = true));
 $('make-settings').addEventListener('click', () => showAISettings());

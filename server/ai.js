@@ -96,7 +96,8 @@ Guidelines:
 - Real-world size in mm unless the user gives one (a table candle ~ 20–25 mm wide, 80–150 mm tall; a toy wheel ~ 40–60 mm across).
 - Model it standing on the plate: nothing below z = 0, the object resting on z = 0.
 - Make it printable: walls and details at least 1.2 mm thick, no loose floating pieces – parts that belong together must touch or overlap (overlap them by ~0.5 mm in unions).
-- Natural, organic things (trees, plants, animals, fruit) are built from tubes (branches, limbs, stems – give their end points; let the branches spread out in different directions, up and outwards, each 30–60 % of the trunk's length) and hulls or unions of several spheres (crowns, bodies, heads, fruit). Use several overlapping, differently sized and placed spheres for a natural, lumpy crown – not one flat disc.
+- Trees, bushes and bonsai: always the "tree" node (it grows a realistic tree) – choose its settings from the description.
+- Other natural, organic things (plants, animals, fruit) are built from tubes (branches, limbs, stems – give their end points; let the branches spread out in different directions, up and outwards, each 30–60 % of the trunk's length) and hulls or unions of several spheres (crowns, bodies, heads, fruit). Use several overlapping, differently sized and placed spheres for a natural, lumpy crown – not one flat disc.
 - Avoid "rotate" when you can give points instead: tubes need no rotation.
 - Prefer revolve for round, turned shapes (candles, vases, wheels' rims and tyres, knobs), extrude for flat outlines, around for repeated features (spokes, flutes, teeth), difference for holes.
 - Use enough detail to look like the thing, but keep it under ~150 nodes.
@@ -114,22 +115,11 @@ Example – "a mug":
      {"torus": {"R": 22, "r": 5}, "rotate": [90, 0, 0], "translate": [42, 0, 50]}]},
    {"cylinder": {"r": 36, "h": 95}, "translate": [0, 0, 4]}]}}
 
-Example – "a tree" (trunk and branches as tubes between points, a lumpy crown from overlapping spheres):
-{"name": "Tree", "description": "A tree 150 mm tall with a tapering trunk, five branches and a leafy crown.",
+Example – "a gnarly bare tree on a round base":
+{"name": "Bare tree", "description": "A gnarly bare tree 140 mm tall with spreading roots, on a 70 mm base.",
  "recipe": {"union": [
-   {"tube": {"from": [0, 0, 0], "to": [0, 0, 80], "r": 7, "r2": 4.5}},
-   {"tube": {"from": [0, 0, 55], "to": [28, 6, 95], "r": 3.5, "r2": 2}},
-   {"tube": {"from": [0, 0, 62], "to": [-24, 14, 100], "r": 3.5, "r2": 2}},
-   {"tube": {"from": [0, 0, 70], "to": [-8, -26, 104], "r": 3, "r2": 1.8}},
-   {"tube": {"from": [0, 0, 75], "to": [12, 22, 110], "r": 3, "r2": 1.8}},
-   {"tube": {"from": [0, 0, 78], "to": [0, 0, 118], "r": 4.5, "r2": 2.5}},
-   {"sphere": {"r": 26}, "translate": [0, 0, 118]},
-   {"sphere": {"r": 20}, "translate": [26, 8, 104]},
-   {"sphere": {"r": 19}, "translate": [-24, 14, 106]},
-   {"sphere": {"r": 18}, "translate": [-8, -24, 108]},
-   {"sphere": {"r": 18}, "translate": [12, 22, 114]},
-   {"sphere": {"r": 16}, "translate": [0, 0, 138]},
-   {"cylinder": {"r": 12, "h": 3, "r2": 7}}]}}
+   {"tree": {"height": 140, "levels": 5, "gnarl": 0.6, "thickness": 1.3, "roots": 6, "bark": 0.8, "leaves": "none", "seed": 3}, "translate": [0, 0, 4]},
+   {"cylinder": {"r": 35, "h": 4.5, "r2": 33}}]}}
 
 Example – "a candle with drips" (revolve profile points are [distance from the axis, height], going round the outline). Details on a surface (drips, buttons, studs) must sit ON it, centred about at the surface so half sticks out – a drip on a 12 mm radius candle is centred at 12–12.5 mm from the axis, not inside:
 {"name": "Candle", "description": "A candle 24 mm wide and 92 mm tall with a melted rim, drips of different lengths and a wick.",
