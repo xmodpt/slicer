@@ -19,6 +19,7 @@ export const PROVIDERS = {
   anthropic: { label: 'Claude (Anthropic)', model: 'claude-opus-5-5', env: 'ANTHROPIC_API_KEY', keyUrl: 'https://console.anthropic.com/' },
   openai: { label: 'ChatGPT (OpenAI)', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1', env: 'OPENAI_API_KEY', keyUrl: 'https://platform.openai.com/api-keys' },
   gemini: { label: 'Gemini (Google)', model: 'gemini-2.5-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', env: 'GEMINI_API_KEY', keyUrl: 'https://aistudio.google.com/apikey' },
+  openrouter: { label: 'OpenRouter (has free models)', model: 'openrouter/free', baseUrl: 'https://openrouter.ai/api/v1', env: 'OPENROUTER_API_KEY', keyUrl: 'https://openrouter.ai/keys' },
   local: { label: 'Local / other (OpenAI-compatible: Ollama, LM Studio…)', model: 'llama3.2-vision', baseUrl: 'http://localhost:11434/v1', env: '', keyUrl: '' },
 };
 
