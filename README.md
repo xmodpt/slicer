@@ -138,7 +138,7 @@ arms, hands, skirt, legs, shoes, a table or base…:
    cut (borders are tidied first so every piece comes out watertight). Undo
    brings everything back.
 
-Needs the Anthropic API key (see *AI object recognition* above). Without it,
+Needs an AI set up in ✨ AI → AI settings (Claude, ChatGPT, Gemini or a local AI – see above). Without it,
 **Find body parts** below works from the shape alone.
 
 ## Body parts
