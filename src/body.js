@@ -132,6 +132,43 @@ function findBase(L, levels) {
   return null;
 }
 
+// Height of the base's top surface: the upward-facing triangles between
+// z0 and z1, the height that most of their area is at (rounded to a fine
+// grid, so a slightly uneven scanned top still has one height).
+function baseTop(mesh, z0, z1) {
+  const P = mesh.positions, I = mesh.indices, T = mesh.triangleCount;
+  const bins = 64, w = (z1 - z0) / bins;
+  const area = new Float64Array(bins);
+  let maxZ = z0;
+  for (let t = 0; t < T; t++) {
+    const a = I[t * 3] * 3, b = I[t * 3 + 1] * 3, c = I[t * 3 + 2] * 3;
+    const z = (P[a + 2] + P[b + 2] + P[c + 2]) / 3;
+    if (z < z0 || z > z1) continue;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (!(len > 0) || nz / len < 0.9) continue;
+    area[Math.min(bins - 1, Math.floor((z - z0) / w))] += len;
+    maxZ = Math.max(maxZ, P[a + 2], P[b + 2], P[c + 2]);
+  }
+  let best = -1;
+  for (let i = 0; i < bins; i++) if (area[i] > 0 && (best < 0 || area[i] > area[best])) best = i;
+  if (best < 0) return z0 + (z1 - z0) * 0.75;
+  // The top of that band: the highest corner of a triangle in it.
+  let top = z0 + best * w;
+  for (let t = 0; t < T; t++) {
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const z = P[I[t * 3 + k] * 3 + 2];
+      lo = Math.min(lo, z);
+      hi = Math.max(hi, z);
+    }
+    if (lo >= z0 + best * w - w && hi <= z0 + (best + 1) * w + w && hi > top) top = hi;
+  }
+  return top;
+}
+
 // The ankle: the narrowest ring in the lower part of a leg, clearly narrower
 // than the foot below it.
 function ankleRing(rings) {
@@ -180,7 +217,10 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
   // A base (a plinth the figure stands on): one wide ring at the bottom whose
   // area drops sharply a little higher up, where the feet stand on it.
   const base = findBase(L, levels);
-  if (base) for (let k = 0; k < base.k; k++) for (const r of L[k]) r.part = BASE;
+  if (base) {
+    for (let k = 0; k < base.k; k++) for (const r of L[k]) r.part = BASE;
+    base.top = baseTop(mesh, min[2] + (base.k - 1.5) * step, min[2] + (base.k + 0.5) * step);
+  }
 
   // Head: above the neck, connected to the top.
   const neck = findHeadNeck(mesh);
@@ -252,6 +292,14 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
     });
   }
   for (let t = 0; t < T; t++) if (objectOf[t] < 0) objectOf[t] = TORSO;
+  // The base's top surface is the base's, right up to the soles.
+  if (base) {
+    for (let t = 0; t < T; t++) {
+      if (objectOf[t] === BASE) continue;
+      const a = P[I[t * 3] * 3 + 2], b = P[I[t * 3 + 1] * 3 + 2], c = P[I[t * 3 + 2] * 3 + 2];
+      if (Math.max(a, b, c) <= base.top + step * 0.05) objectOf[t] = BASE;
+    }
+  }
 
   const faces = Array.from({ length: 7 }, () => []);
   for (let t = 0; t < T; t++) faces[objectOf[t]].push(t);
@@ -290,5 +338,5 @@ export function findBodyParts(mesh, { levels = 160 } = {}) {
   limbJoint(LEG_B, 'Hip – leg (right in Front view)', true);
   limbJoint(LEG_A, 'Ankle – foot (left in Front view)', 'ankle');
   limbJoint(LEG_B, 'Ankle – foot (right in Front view)', 'ankle');
-  return { parts, objectOf, joints, base: base ? { z: min[2] + (base.k + 0.25) * step } : null };
+  return { parts, objectOf, joints, base: base ? { top: base.top, z: base.top + Math.max(height * 2e-4, step * 0.05), bottom: min[2] } : null };
 }

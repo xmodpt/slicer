@@ -14,7 +14,7 @@ import { seamLoop, smoothLine, splitAlongLine, cutAlongLoop } from './neck.js';
 export function kitCuts(body, choices = {}) {
   const want = { base: true, feet: false, legs: true, arms: false, head: true, ...choices };
   const cuts = [];
-  if (body.base && want.base) cuts.push({ key: 'base', name: 'Base', z: body.base.z });
+  if (body.base && want.base) cuts.push({ key: 'base', name: 'Base', z: body.base.z, top: body.base.top, bottom: body.base.bottom });
   const joint = (prefix, key, name) => {
     for (const j of body.joints) {
       if (!j.name.startsWith(prefix) || !want[key]) continue;
@@ -76,7 +76,10 @@ export function splitFigure(mesh, cuts, { connector = null, smooth = 0.6, collar
         for (const part of mesh.parts()) {
           let lo = Infinity;
           for (const t of part.faces) for (let k = 0; k < 3; k++) lo = Math.min(lo, P[I[t * 3 + k] * 3 + 2]);
-          if (lo < cut.z - 1e-6) for (const t of part.faces) cutOff[t] = 1;
+          let hi = -Infinity;
+          for (const t of part.faces) for (let k = 0; k < 3; k++) hi = Math.max(hi, P[I[t * 3 + k] * 3 + 2]);
+          // Below the cut – or a crumb of an uneven top left above it.
+          if (lo < cut.z - 1e-6 || (cut.top !== undefined && hi < cut.z + (cut.top - cut.bottom) * 0.25)) for (const t of part.faces) cutOff[t] = 1;
         }
       } else {
         let loop = seamLoop(mesh, cut.neck, { follow: cut.key === 'head' && collar ? 1 : follow, width, collar: cut.key === 'head' && collar });

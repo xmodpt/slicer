@@ -273,6 +273,7 @@ function edit(fn) {
   if (!state.mesh) return;
   const before = snapshotAll();
   state.moving = false;
+  state.quietFloating = false;
   const result = fn(state.mesh);
   const { message, selection } = typeof result === 'object' && result ? result : { message: result };
   if (state.mesh.indices !== before.indices) {
@@ -348,6 +349,7 @@ function closeHoles() {
 }
 
 function undo() {
+  state.quietFloating = false;
   if (!state.undo.length) return;
   state.moving = false;
   state.redo.push(snapshotAll());
@@ -628,6 +630,12 @@ function checkFloating() {
   if (before.size !== state.floatingFirst.size || [...before].some((f) => !state.floatingFirst.has(f))) renderObjectList();
   if (cardOverride === 'fix') renderFix();
   const box = $('floating-warning');
+  // Parts pulled apart on purpose (a split figure) float until the next edit.
+  if (state.quietFloating) {
+    box.hidden = true;
+    state.floatingCount = floating.length;
+    return;
+  }
   box.hidden = !floating.length;
   if (!floating.length) return;
   const tris = floating.reduce((n, p) => n + p.faces.length, 0);
@@ -1484,6 +1492,29 @@ $('kit-plan').addEventListener('click', () => {
 for (const k of KIT_KEYS) $('kit-' + k).addEventListener('change', showKitPlan);
 $('kit-pin').addEventListener('change', showKitPlan);
 
+// Pull the parts of a split figure apart (one undo step), each a bit above
+// the one it stood on, the arms out to the sides – so every joint shows.
+function spreadKit(names, ids) {
+  const mesh = state.mesh;
+  const { min, max } = mesh.bounds();
+  const gap = Math.max(2, (max[2] - min[2]) * 0.06);
+  state.quietFloating = true;
+  const level = (n) => (n === 'Base' ? 0 : n.startsWith('Foot') ? 1 : n.startsWith('Leg') ? 2 : n === 'Head' ? 4 : 3);
+  transformBurst(() => {
+    names.forEach((n, i) => {
+      const mask = new Uint8Array(mesh.triangleCount);
+      let any = false;
+      state.faceGroup.forEach((g, t) => g === ids[i] && (mask[t] = any = 1));
+      if (!any) return;
+      const b = mesh.bounds(mask);
+      const side = n.startsWith('Arm') ? Math.sign((b.min[0] + b.max[0]) / 2 - (min[0] + max[0]) / 2) * gap : 0;
+      mesh.translate(side, 0, level(n) * gap, mesh.verticesOf(mask));
+    });
+  });
+  state.moving = false;
+  viewer.frame();
+}
+
 $('kit-cut').addEventListener('click', () => {
   const body = state.kitBody;
   if (!state.mesh || !body) return;
@@ -1507,7 +1538,8 @@ $('kit-cut').addEventListener('click', () => {
     setMode('normal');
     renderObjectList();
     updateExportLabels();
-    const pins = connector ? ` Each joint has a ${shape} pin (tip ${fmtMM(connector.taper)} % narrower) and a hole ${fmtMM(connector.tolerance)} mm wider.` : '';
+    if (result.done.length) spreadKit(result.names, ids);
+    const pins = connector ? ` Pulled apart so you can see each joint (Ctrl+Z puts them back together). Each joint has a ${shape} pin (tip ${fmtMM(connector.taper)} % narrower) and a hole ${fmtMM(connector.tolerance)} mm wider.` : '';
     toast(`${result.done.length ? `Split into ${result.names.length} parts.` : 'Nothing was cut.'}${pins} ${result.notes.join(' ')}`.trim());
   });
 });
