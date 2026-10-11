@@ -84,7 +84,7 @@ groups the pieces. Choose the AI in **✨ AI → AI settings…**:
 |---|---|---|
 | **Claude** (Anthropic) – default | console.anthropic.com | model `claude-opus-5-5` |
 | **ChatGPT** (OpenAI) | platform.openai.com/api-keys | any vision model, e.g. `gpt-4o` |
-| **Gemini** (Google) | aistudio.google.com/apikey | free tier (no card, rate-limited, Flash models only), e.g. `gemini-2.5-flash` |
+| **Gemini** (Google) | aistudio.google.com/apikey | free tier (no card, rate-limited, Flash models only), default `gemini-flash-latest` (always the current Flash model) |
 | **OpenRouter** | openrouter.ai/keys | free option: model `openrouter/free` picks a free model that can see images (rate-limited) |
 | **Local / other** | – (usually no key) | any OpenAI-compatible server: **Ollama** or **LM Studio** on a PC, with a vision model (e.g. `ollama pull llama3.2-vision`, address `http://<PC>:11434/v1`). Free and offline, but less accurate; a Raspberry Pi is too slow to run one. |
 

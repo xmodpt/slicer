@@ -18,8 +18,8 @@ import { z } from 'zod';
 export const PROVIDERS = {
   anthropic: { label: 'Claude (Anthropic)', model: 'claude-opus-5-5', env: 'ANTHROPIC_API_KEY', keyUrl: 'https://console.anthropic.com/' },
   openai: { label: 'ChatGPT (OpenAI)', model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1', env: 'OPENAI_API_KEY', keyUrl: 'https://platform.openai.com/api-keys' },
-  gemini: { label: 'Gemini (Google)', model: 'gemini-2.5-flash', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', env: 'GEMINI_API_KEY', keyUrl: 'https://aistudio.google.com/apikey' },
-  openrouter: { label: 'OpenRouter (has free models)', model: 'openrouter/free', baseUrl: 'https://openrouter.ai/api/v1', env: 'OPENROUTER_API_KEY', keyUrl: 'https://openrouter.ai/keys' },
+  gemini: { label: 'Gemini (Google)', model: 'gemini-flash-latest', free: true, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', env: 'GEMINI_API_KEY', keyUrl: 'https://aistudio.google.com/apikey' },
+  openrouter: { label: 'OpenRouter (has free models)', model: 'openrouter/free', free: true, baseUrl: 'https://openrouter.ai/api/v1', env: 'OPENROUTER_API_KEY', keyUrl: 'https://openrouter.ai/keys' },
   local: { label: 'Local / other (OpenAI-compatible: Ollama, LM Studio…)', model: 'llama3.2-vision', baseUrl: 'http://localhost:11434/v1', env: '', keyUrl: '' },
 };
 
@@ -167,10 +167,12 @@ async function askOpenAICompatible({ system, images, text }, { provider, apiKey,
   });
   const reply = data?.choices?.[0]?.message?.content;
   const textReply = Array.isArray(reply) ? reply.map((p) => p.text || '').join('') : reply || '';
-  return parseAnswer(textReply);
+  const answer = parseAnswer(textReply);
+  if (data.replacedModel) answer.replacedModel = data.replacedModel;
+  return answer;
 }
 
-async function chatCompletion(provider, baseUrl, apiKey, body) {
+async function chatCompletion(provider, baseUrl, apiKey, body, retired = false) {
   const url = (baseUrl || PROVIDERS[provider]?.baseUrl || '').replace(/\/+$/, '') + '/chat/completions';
   if (!/^https?:\/\//.test(url)) throw new HttpError(400, 'Set the server address in AI settings (e.g. http://localhost:11434/v1).');
   let res;
@@ -192,6 +194,13 @@ async function chatCompletion(provider, baseUrl, apiKey, body) {
   if (!res.ok) {
     const msg = data?.error?.message || data?.error || raw.slice(0, 300);
     if (res.status === 401 || res.status === 403) throw new HttpError(401, `${PROVIDERS[provider]?.label || provider} rejected the API key – check it in AI settings. (${msg})`);
+    // A retired model: the error names its replacement ("…use models/x
+    // instead") – ask that one once, and say so (the caller saves it).
+    const newer = res.status === 404 && !retired && /use (?:models\/)?([\w.-]*\d[\w.-]*)/i.exec(String(msg));
+    if (newer && newer[1] !== body.model) {
+      const data2 = await chatCompletion(provider, baseUrl, apiKey, { ...body, model: newer[1] }, true);
+      return { ...data2, replacedModel: newer[1] };
+    }
     if (res.status === 404) throw new HttpError(400, `Model or address not found – check AI settings. (${msg})`);
     if (res.status === 429) throw new HttpError(429, `AI is busy or out of credit (rate limited). (${msg})`);
     throw new HttpError(res.status === 400 ? 400 : 502, `AI request failed (${res.status}): ${msg}`);
@@ -249,7 +258,7 @@ export async function testSettings(settings) {
     messages: [{ role: 'user', content: 'Reply with just the word OK.' }],
     max_tokens: 20,
   });
-  return { ok: true, model: data?.model || settings.model, reply: String(data?.choices?.[0]?.message?.content ?? '').trim() };
+  return { ok: true, model: data?.model || data?.replacedModel || settings.model, replacedModel: data?.replacedModel, reply: String(data?.choices?.[0]?.message?.content ?? '').trim() };
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +299,7 @@ function publicSettings(file, envKey) {
       baseUrl: saved.baseUrls?.[id] || p.baseUrl || '',
       needsBaseUrl: id === 'local',
       keyUrl: p.keyUrl,
+      free: !!p.free,
       hasKey: !!(saved.keys?.[id] || (id === 'anthropic' && envKey()) || (p.env && process.env[p.env])),
     })),
   };
@@ -331,10 +341,18 @@ export function aiMiddleware(getApiKey = () => undefined, { settingsFile = 'ai-s
       }
       const settings = resolveSettings(settingsFile, getApiKey);
       if (!settings.apiKey && settings.provider !== 'local') throw new HttpError(400, NO_KEY(settings.provider));
-      if (path === '/api/ai/test') return send(200, await testSettings(settings));
+      // Remember a replacement for a retired model, so it's asked directly next time.
+      const keepModel = (result) => {
+        if (!result.replacedModel) return result;
+        const saved = loadSettings(settingsFile);
+        saved.models = { ...saved.models, [settings.provider]: result.replacedModel };
+        saveSettings(settingsFile, saved);
+        return result;
+      };
+      if (path === '/api/ai/test') return send(200, keepModel(await testSettings(settings)));
       if (path === '/api/ai/analyze') {
         const body = JSON.parse(await readBody(req, 40 * 1024 * 1024));
-        return send(200, await analyzeModel(body, settings));
+        return send(200, keepModel(await analyzeModel(body, settings)));
       }
       return send(404, { error: 'Unknown AI request.' });
     } catch (err) {

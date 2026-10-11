@@ -1167,7 +1167,7 @@ function fillAISettings(providerId) {
   $('ai-baseurl').value = p.baseUrl;
   $('ai-key').value = '';
   $('ai-key').placeholder = p.hasKey ? 'saved ✓ – paste a new one to replace it' : p.id === 'local' ? 'usually not needed' : 'paste your key';
-  $('ai-key-help').innerHTML = p.keyUrl ? `Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a> (the AI company bills your account – usually a few cents per analysis).` : '';
+  $('ai-key-help').innerHTML = p.keyUrl ? `Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a> ${p.free ? '(free – no card needed; limited requests per day).' : '(the AI company bills your account – usually a few cents per analysis).'}` : '';
   $('ai-clearkey').disabled = !p.hasKey;
 }
 
@@ -1229,7 +1229,11 @@ $('ai-test').addEventListener('click', async () => {
     const res = await fetch('./api/ai/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
-    aiStatus(`It works – ${data.model} answered “${(data.reply || '').slice(0, 40)}”.`, true);
+    if (data.replacedModel) {
+      $('ai-model').value = data.replacedModel;
+      await loadAISettings();
+    }
+    aiStatus(`It works${data.replacedModel ? ` – the old model was retired, switched to ${data.replacedModel}` : ''} – ${data.model} answered “${(data.reply || '').slice(0, 40)}”.`, true);
   } catch (err) {
     aiStatus(err.message);
   }
