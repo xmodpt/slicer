@@ -74,25 +74,52 @@ other computer – `localhost` only works on the Pi itself.
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
 
-### AI object recognition (optional)
+### AI (optional) – Claude, ChatGPT, Gemini or a local AI
 
-The *Ask AI to identify objects* button sends a few rendered views of the model
-to Claude, which names the detected objects (e.g. "Candle"), groups pieces that
-belong together and suggests what to keep or remove – optionally based on a
-goal you type, like "remove the candles". It runs on the server, so the API key
-is never sent to the browser.
+The AI features (*Ask AI to identify objects*, *Make a new object*) use an
+AI of your choice. Choose the AI in **✨ AI → AI settings…**:
 
-1. Get an API key at <https://console.anthropic.com/>.
-2. On the machine running the app (e.g. the Pi), create a file `.env` in this
-   folder containing:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-   (or `export ANTHROPIC_API_KEY=...` before `npm start`). `.env` is ignored by git.
-3. Restart `npm start`.
+| AI | Key from | Notes |
+|---|---|---|
+| **Claude** (Anthropic) – default | console.anthropic.com | model `claude-opus-5-5` |
+| **ChatGPT** (OpenAI) | platform.openai.com/api-keys | any vision model, e.g. `gpt-4o` |
+| **Gemini** (Google) | aistudio.google.com/apikey | free tier (no card, rate-limited, Flash models only), default `gemini-flash-latest` (always the current Flash model) |
+| **OpenRouter** | openrouter.ai/keys | free option: model `openrouter/free` picks a free model that can see images (rate-limited) |
+| **Local / other** | – (usually no key) | any OpenAI-compatible server: **Ollama** or **LM Studio** on a PC, with a vision model (e.g. `ollama pull llama3.2-vision`, address `http://<PC>:11434/v1`). Free and offline, but less accurate; a Raspberry Pi is too slow to run one. |
 
-Each analysis is one request to the Claude Opus 5.5 model with four images –
-typically a few cents. Everything else in the app works without a key.
+Paste the key, **Save**, then **Test** – it sends a tiny request and shows
+the answer. Settings and keys are stored on the machine running the app
+(`ai-settings.json` in this folder, readable only by its owner and ignored
+by git; the desktop app keeps it in its data folder) and are never sent to the
+browser. Environment variables still work too (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, also from `.env`). Everything else in the
+app works without any AI. Each analysis is one request with a few images –
+typically a few cents with the paid AIs.
+
+### Make a new object with AI (free with Gemini)
+
+**✨ AI → Make a new object…** opens a prompt panel: describe the object –
+*“a candle 100 mm tall with drips”*, *“a wheel 50 mm across with 6 spokes and
+a 5 mm axle hole”* – and press Enter. Add reference pictures with 📎, by
+dragging them onto the panel or by pasting (up to 4; the AI must be able to
+see images – Gemini, ChatGPT, Claude and OpenRouter's free router can).
+
+The AI doesn't draw triangles: it answers with a *shape recipe* – boxes,
+cylinders and cones, spheres, rings, outlines turned around an axis (candles,
+vases, rims) or pushed up (flat shapes), copies around an axis (spokes,
+teeth), and adding, cutting away and overlapping them (`src/shapegen.js`).
+The editor builds the recipe with the manifold-3d geometry library, so the
+result is always a closed, printable solid in mm, standing on the plate.
+
+- Ask for changes in plain words (“make it taller”, “thicker spokes”) – with
+  *Change the last one* ticked, the AI gets the previous recipe and edits it,
+  and the old object is replaced.
+- *Add next to the open model* puts the object beside what is open as a model
+  of its own; off, it replaces it. Ctrl+Z undoes either.
+- It suits made, geometric things (candles, wheels, knobs, boxes, vases,
+  brackets, chess pieces); organic shapes (animals, faces) come out simple.
+- Free: choose **Gemini** in AI settings with a free key from
+  aistudio.google.com/apikey (no card). A request is text plus the pictures.
 
 ## Modes
 
@@ -330,8 +357,10 @@ holes, parts and whether the mesh is watertight.
   and filling, selection helpers. No browser dependencies.
 - `src/segment.js` – splits the mesh into suggested objects at concave creases.
 - `src/samples.js` – the built-in cake-with-candles sample.
-- `server/ai.js` – server-side Claude request for *Ask AI* (hooked into the Vite
-  server by `vite.config.js`).
+- `src/shapegen.js` – builds the AI's shape recipes into solids (manifold-3d).
+- `server/ai.js` – server-side AI requests (Claude, OpenAI-compatible) for *Ask AI*
+  and *Make a new object*, and the AI settings (hooked into the Vite server by
+  `vite.config.js`).
 - `src/gizmo.js` – the navigation gizmo.
 - `src/cut.js` – plane cut with caps and connector pins/holes.
 - `src/cutgizmo.js` – the cut plane's orb (slide / tilt / move handles).

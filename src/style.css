@@ -17,6 +17,11 @@
   box-sizing: border-box;
 }
 
+/* Hidden means hidden, whatever display a class sets. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -1508,3 +1513,100 @@ svg.logo .r { fill: #008232; stroke: none; }
 .menu-link {
   text-align: left;
 }
+
+.modal-box.left {
+  text-align: left;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.modal-box .field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.modal-box .field input,
+.modal-box .field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-status {
+  min-height: 1.4em;
+  font-size: 12px;
+}
+
+.ai-status.ok {
+  color: var(--accent-2);
+}
+
+.ai-status.bad {
+  color: #ff8a8e;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0 0 0 6px;
+  color: var(--accent-2);
+  font-size: 12px;
+  cursor: pointer;
+  height: auto;
+}
+
+.modal-box code {
+  font-size: 11px;
+}
+
+/* Make with AI – the prompt panel */
+.make-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 800;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
+}
+.make-panel.drop { border-color: var(--accent); }
+.make-head { display: flex; align-items: center; gap: 8px; }
+.make-head .modal-close { position: static; margin-left: auto; }
+.make-head .muted { font-size: 12px; }
+.make-log {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.make-log .you { color: var(--text); }
+.make-log .you::before { content: '> '; color: var(--accent-2); }
+.make-log .ok { color: var(--accent-2); }
+.make-log .bad { color: #ff8a8e; }
+.make-log .muted { font-family: inherit; }
+.make-log img { height: 40px; border-radius: 4px; margin-right: 4px; vertical-align: middle; }
+.make-pics { display: flex; gap: 6px; flex-wrap: wrap; }
+.make-pics:empty { display: none; }
+.make-pics span { position: relative; }
+.make-pics img { height: 48px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+.make-pics button { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 1; }
+.make-input { display: flex; gap: 6px; align-items: stretch; }
+.make-input textarea { flex: 1; resize: vertical; min-height: 38px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.make-attach { display: grid; place-items: center; width: 38px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; font-size: 16px; }
+.make-opts { display: flex; gap: 14px; font-size: 12px; }

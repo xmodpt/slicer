@@ -9,6 +9,7 @@ import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
+import { buildShape, manifoldToSoup } from './shapegen.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -1114,6 +1115,7 @@ async function askAI() {
   } catch (err) {
     applyObjectColors();
     $('ai-summary').textContent = 'AI analysis failed: ' + (err.message || err);
+    aiFailed(String(err.message || err));
   } finally {
     button.disabled = false;
     button.textContent = 'Ask AI to identify objects';
@@ -1121,6 +1123,351 @@ async function askAI() {
 }
 
 $('ai-run').addEventListener('click', askAI);
+
+
+// ---------------------------------------------------------------------------
+// AI settings: which AI (Claude, ChatGPT, Gemini, local), model, key – saved
+// on the server (server/ai.js), keys never come back to the browser.
+
+let aiSettings = null;
+
+async function loadAISettings() {
+  try {
+    const res = await fetch('./api/ai/settings');
+    if (!res.ok) throw new Error();
+    aiSettings = await res.json();
+  } catch {
+    aiSettings = null;
+  }
+  const current = aiSettings?.providers.find((p) => p.id === aiSettings.provider);
+  $('ai-provider-line').textContent = current
+    ? `Using ${current.label.replace(/ \(.*/, '')} – ${current.model}${current.hasKey || current.id === 'local' ? '' : ' (no key yet)'}`
+    : 'AI support is not available on this server.';
+  return aiSettings;
+}
+
+function fillAISettings(providerId) {
+  if (!aiSettings) return;
+  const sel = $('ai-provider');
+  if (!sel.options.length) for (const p of aiSettings.providers) sel.add(new Option(p.label, p.id));
+  sel.value = providerId || aiSettings.provider;
+  const p = aiSettings.providers.find((x) => x.id === sel.value);
+  $('ai-model').value = p.model;
+  $('ai-model').placeholder = p.defaultModel;
+  $('ai-baseurl-row').hidden = !p.needsBaseUrl;
+  $('ai-baseurl').value = p.baseUrl;
+  $('ai-key').value = '';
+  $('ai-key').placeholder = p.hasKey ? 'saved ✓ – paste a new one to replace it' : p.id === 'local' ? 'usually not needed' : 'paste your key';
+  $('ai-key-help').innerHTML = p.keyUrl ? `Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${p.keyUrl.replace(/^https:\/\//, '')}</a> ${p.free ? '(free – no card needed; limited requests per day).' : '(the AI company bills your account – usually a few cents per analysis).'}` : '';
+  $('ai-clearkey').disabled = !p.hasKey;
+}
+
+async function showAISettings(message = '') {
+  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open');
+  await loadAISettings();
+  if (!aiSettings) {
+    toast('AI support is not available – run "npm install" on the server and restart it.');
+    return;
+  }
+  $('ai-provider').innerHTML = '';
+  fillAISettings();
+  $('ai-status').textContent = message;
+  $('ai-status').className = 'ai-status' + (message ? ' bad' : '');
+  $('ai-settings').hidden = false;
+}
+
+async function saveAISettings(extra = {}) {
+  const body = { provider: $('ai-provider').value, model: $('ai-model').value, baseUrl: $('ai-baseurl').value, apiKey: $('ai-key').value, ...extra };
+  const res = await fetch('./api/ai/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+  aiSettings = data;
+  fillAISettings(body.provider);
+  await loadAISettings();
+}
+
+const aiStatus = (text, ok) => {
+  $('ai-status').textContent = text;
+  $('ai-status').className = 'ai-status ' + (ok ? 'ok' : 'bad');
+};
+
+$('ai-settings-open').addEventListener('click', (e) => {
+  e.stopPropagation();
+  showAISettings();
+});
+$('ai-settings-close').addEventListener('click', () => ($('ai-settings').hidden = true));
+$('ai-provider').addEventListener('change', () => fillAISettings($('ai-provider').value));
+$('ai-save').addEventListener('click', async () => {
+  try {
+    await saveAISettings();
+    aiStatus('Saved.', true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+$('ai-clearkey').addEventListener('click', async () => {
+  try {
+    await saveAISettings({ clearKey: true, apiKey: '' });
+    aiStatus('Key removed.', true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+$('ai-test').addEventListener('click', async () => {
+  aiStatus('Testing…', true);
+  try {
+    await saveAISettings();
+    const res = await fetch('./api/ai/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    if (data.replacedModel) {
+      $('ai-model').value = data.replacedModel;
+      await loadAISettings();
+    }
+    aiStatus(`It works${data.replacedModel ? ` – the old model was retired, switched to ${data.replacedModel}` : ''} – ${data.model} answered “${(data.reply || '').slice(0, 40)}”.`, true);
+  } catch (err) {
+    aiStatus(err.message);
+  }
+});
+loadAISettings();
+
+// An AI request failed: missing or wrong key / model → open the settings.
+function aiFailed(message) {
+  if (/AI settings|API key|model/i.test(message)) showAISettings(message);
+}
+
+// ---------------------------------------------------------------------------
+// Make with AI: describe an object (plus reference pictures), the AI answers
+// with a shape recipe and the editor builds it as a closed solid (shapegen.js).
+// Follow-up prompts change the last object.
+
+const make = { pics: [], last: null, busy: false };
+let manifoldWasm = null;
+async function manifoldModule() {
+  if (!manifoldWasm) {
+    const [{ default: Module }, { default: wasmUrl }] = await Promise.all([import('manifold-3d'), import('manifold-3d/manifold.wasm?url')]);
+    const wasm = await Module({ locateFile: () => wasmUrl });
+    wasm.setup();
+    manifoldWasm = wasm;
+  }
+  return manifoldWasm;
+}
+
+function makeLog(html, cls = '') {
+  const div = document.createElement('div');
+  div.className = cls;
+  div.innerHTML = html;
+  $('make-log').append(div);
+  $('make-log').scrollTop = $('make-log').scrollHeight;
+  return div;
+}
+const escapeHTML = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// A picture, made smaller (max 1024 px) and sent as JPEG.
+async function readPicture(file) {
+  const bitmap = await createImageBitmap(file);
+  const k = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * k);
+  canvas.height = Math.round(bitmap.height * k);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const url = canvas.toDataURL('image/jpeg', 0.85);
+  return { url, data: url.split(',')[1], mime: 'image/jpeg' };
+}
+
+async function addPictures(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    if (make.pics.length >= 4) {
+      toast('At most 4 pictures.');
+      break;
+    }
+    try {
+      make.pics.push(await readPicture(f));
+    } catch {
+      toast(`Can't read ${f.name} as a picture.`);
+    }
+  }
+  renderPictures();
+}
+
+function renderPictures() {
+  const box = $('make-pics');
+  box.innerHTML = '';
+  make.pics.forEach((p, i) => {
+    const span = document.createElement('span');
+    span.innerHTML = `<img src="${p.url}" alt="" /><button title="Remove">×</button>`;
+    span.querySelector('button').addEventListener('click', () => {
+      make.pics.splice(i, 1);
+      renderPictures();
+    });
+    box.append(span);
+  });
+}
+
+async function openMakePanel() {
+  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open');
+  $('make-panel').hidden = false;
+  $('make-prompt').focus();
+  await loadAISettings();
+  const current = aiSettings?.providers.find((p) => p.id === aiSettings.provider);
+  $('make-provider').textContent = current ? `${current.label.replace(/ \(.*\)/, '')} · ${current.model}${current.free ? ' · free' : ''}` : '';
+}
+
+async function makeObject() {
+  const prompt = $('make-prompt').value.trim();
+  if (make.busy || (!prompt && !make.pics.length)) return;
+  const refine = $('make-refine').checked && make.last;
+  const pics = make.pics.slice();
+  make.busy = true;
+  $('make-go').disabled = true;
+  makeLog(escapeHTML(prompt || '(from the pictures)') + (pics.length ? '<br>' + pics.map((p) => `<img src="${p.url}" alt="" />`).join('') : ''), 'you');
+  const wait = makeLog('Designing…', 'muted');
+  try {
+    const [res] = await Promise.all([
+      fetch('./api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, images: pics.map(({ data, mime }) => ({ data, mime })), previous: refine ? make.last.recipe : null }),
+      }),
+      manifoldModule(),
+    ]);
+    const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
+    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    wait.textContent = 'Building the solid…';
+    const wasm = await manifoldModule();
+    let solid;
+    try {
+      solid = buildShape(wasm, data.recipe);
+    } catch (err) {
+      throw new Error(`The AI's design doesn't work (${err.message}) – try again or describe it differently.`);
+    }
+    const soup = manifoldToSoup(solid);
+    solid.delete();
+    await placeMade(soup, data.name, refine);
+    make.last = { recipe: data.recipe, name: data.name };
+    $('make-refine').disabled = false;
+    $('make-refine').checked = true;
+    wait.remove();
+    makeLog(`✓ ${escapeHTML(data.name)} – ${escapeHTML(data.description)} (${(soup.length / 9).toLocaleString()} triangles, closed)`, 'ok');
+    $('make-prompt').value = '';
+    make.pics = [];
+    renderPictures();
+  } catch (err) {
+    wait.remove();
+    makeLog(escapeHTML(err.message || err), 'bad');
+    aiFailed(String(err.message || err));
+  } finally {
+    make.busy = false;
+    $('make-go').disabled = false;
+  }
+}
+
+// Into the editor: as the model (nothing open, or "Add" off), or as one more
+// model beside the open one (one undo step). A change to the last object
+// replaces it.
+async function placeMade(soup, name, refine) {
+  const lastGroup = refine && state.mesh ? state.madeGroup : undefined;
+  if (!state.mesh || (!$('make-add').checked && lastGroup === undefined)) {
+    await busy(() => loadSoup(soup, `${name}.stl`));
+    state.madeGroup = 0;
+    state.groupNames.set(0, name);
+    renderObjectList?.();
+    return;
+  }
+  edit((mesh) => {
+    let P = mesh.positions, I = mesh.indices;
+    let groups = state.faceGroup;
+    // Changing the last object: take the old one out first.
+    if (lastGroup !== undefined && groups.some((g) => g === lastGroup)) {
+      const keep = [];
+      for (let t = 0; t < I.length / 3; t++) if (groups[t] !== lastGroup) keep.push(t);
+      I = Uint32Array.from(keep.flatMap((t) => [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]]));
+      groups = Int32Array.from(keep, (t) => groups[t]);
+    }
+    // Beside what is there, on the plate.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const v of new Set(I)) {
+      minX = Math.min(minX, P[v * 3]); maxX = Math.max(maxX, P[v * 3]);
+      minY = Math.min(minY, P[v * 3 + 1]); maxY = Math.max(maxY, P[v * 3 + 1]);
+    }
+    const sb = [Infinity, -Infinity, Infinity, -Infinity, Infinity];
+    for (let i = 0; i < soup.length; i += 3) {
+      sb[0] = Math.min(sb[0], soup[i]); sb[1] = Math.max(sb[1], soup[i]);
+      sb[2] = Math.min(sb[2], soup[i + 1]); sb[3] = Math.max(sb[3], soup[i + 1]);
+      sb[4] = Math.min(sb[4], soup[i + 2]);
+    }
+    const dx = I.length ? maxX + 10 - sb[0] : -(sb[0] + sb[1]) / 2;
+    const dy = I.length ? (minY + maxY) / 2 - (sb[2] + sb[3]) / 2 : -(sb[2] + sb[3]) / 2;
+    const added = EditableMesh.fromSoup(soup);
+    const n0 = P.length / 3;
+    const pos = new Float32Array(P.length + added.positions.length);
+    pos.set(P);
+    for (let i = 0; i < added.positions.length; i += 3) {
+      pos[P.length + i] = added.positions[i] + dx;
+      pos[P.length + i + 1] = added.positions[i + 1] + dy;
+      pos[P.length + i + 2] = added.positions[i + 2] - sb[4];
+    }
+    const ind = new Uint32Array(I.length + added.indices.length);
+    ind.set(I);
+    for (let i = 0; i < added.indices.length; i++) ind[I.length + i] = added.indices[i] + n0;
+    mesh._set(pos, ind);
+    placeMade.groups = { old: groups, count: added.triangleCount };
+    return `${refine ? 'Changed' : 'Added'} ${name}`;
+  });
+  // Old models keep their groups; the new object is a model of its own.
+  const { old, count } = placeMade.groups;
+  const id = newGroupId(name);
+  const next = new Int32Array(state.mesh.triangleCount);
+  next.set(old);
+  next.fill(id, old.length, old.length + count);
+  state.faceGroup = next;
+  state.madeGroup = id;
+  renderObjectList();
+  updateExportLabels();
+  viewer.frame();
+}
+
+$('make-open').addEventListener('click', openMakePanel);
+$('make-close').addEventListener('click', () => ($('make-panel').hidden = true));
+$('make-settings').addEventListener('click', () => showAISettings());
+$('make-go').addEventListener('click', makeObject);
+$('make-prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    makeObject();
+  }
+  e.stopPropagation(); // typing is not a shortcut
+});
+$('make-file').addEventListener('change', (e) => {
+  addPictures([...e.target.files]);
+  e.target.value = '';
+});
+$('make-prompt').addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+  if (files.length) {
+    e.preventDefault();
+    addPictures(files);
+  }
+});
+for (const type of ['dragenter', 'dragover']) {
+  $('make-panel').addEventListener(type, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    $('make-panel').classList.add('drop');
+  });
+}
+$('make-panel').addEventListener('dragleave', () => $('make-panel').classList.remove('drop'));
+$('make-panel').addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  $('make-panel').classList.remove('drop');
+  addPictures([...e.dataTransfer.files]);
+});
+
 $('ai-goal').addEventListener('keydown', (e) => e.key === 'Enter' && askAI());
 $('ai-select-remove').addEventListener('click', () => {
   const ids = (state.ai?.items || []).filter((i) => i.suggestion === 'remove').flatMap((i) => i.object_ids);

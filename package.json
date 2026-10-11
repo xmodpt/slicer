@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
+    "manifold-3d": "^3.5.4",
     "three": "^0.170.0",
     "zod": "^4.6.5"
   },
