@@ -135,8 +135,12 @@ result is always a closed, printable solid in mm, standing on the plate.
 ### Tree generator (no AI needed)
 
 Trees are grown by an algorithm (`src/tree.js`), not drawn from shapes: one
-or more trunks fork again and again into tapering, bending branches (each
-level thinner, like real trees), with bark grooves, roots spreading on the
+or more trunks fork again and again. Each branch is a few nearly straight
+pieces with a small kink at each node (where side twigs come off), as wood
+grows; its thickness comes from how many twigs it carries (the pipe model of
+real trees), so the trunk is thick, every branch tapers and twigs end in
+fine points. The strongest fork carries the branch on, so the bark runs
+through the joint, with bark grooves, roots spreading on the
 ground (cut flat for the print bed) and, if wanted, sprays of leaves on the
 twigs. Every branch is a swept tube; manifold-3d joins them into one closed
 solid.

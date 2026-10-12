@@ -19,7 +19,7 @@ export const TREE_DEFAULTS = {
   bark: 0.6, // 0 = smooth, 1 = deep grooves
   leaves: 'none', // 'none' | 'clusters' (leaf sprays on the twigs) | 'crown' (dense)
   leafSize: 0, // mm, 0 = automatic
-  minTwig: 0.9, // mm, thinnest twig radius (printable)
+  minTwig: 0.7, // mm, thinnest twig radius (printable)
   detail: 'normal', // 'draft' | 'normal' | 'fine' – mesh resolution
   seed: 1,
 };
@@ -58,95 +58,130 @@ export function growTree(options = {}) {
   const H = Math.max(10, +o.height || 120);
   const rand = rng(o.seed);
   const gnarl = Math.min(1.5, Math.max(0, +o.gnarl));
-  const minR = Math.max(0.3, +o.minTwig || 0.9);
-  const branches = [];
-  const tips = [];
-  const knots = [];
-  const MAX = 4000;
+  const minR = Math.max(0.3, +o.minTwig || 0.7);
+  const MAXN = 3000;
 
-  // A branch grows from p in direction d; then side branches and a fork.
-  const grow = (p, d, length, r0, level, isTrunk) => {
-    if (branches.length >= MAX) return;
-    const r1 = Math.max(minR, r0 * (isTrunk ? 0.78 : 0.75));
-    const step = Math.max(r0 * 1.1, length / 14, 0.8);
-    const n = Math.max(2, Math.round(length / step));
-    const pts = [[...p]], radii = [r0];
-    let dir = d;
-    let wander = anyPerp(d);
-    for (let i = 1; i <= n; i++) {
-      // Crooked growth: turn a little, mostly the same way for a while.
-      wander = norm(add(mul(wander, 0.7), mul([rand() - 0.5, rand() - 0.5, rand() - 0.5], 1.2)));
-      const turn = gnarl * (isTrunk ? 0.18 : 0.3);
-      dir = norm(add(add(dir, mul(wander, turn)), [0, 0, isTrunk ? 0.12 : 0.07 - level * 0.012]));
-      pts.push(add(pts[i - 1], mul(dir, length / n)));
-      radii.push(r0 + (r1 - r0) * (i / n));
+  // The skeleton is a graph of nodes; a branch is a few nearly straight
+  // pieces between nodes, with a small kink at each – as wood grows.
+  const nodes = [];
+  const node = (p, parent, dir, level, trunk) => {
+    const n = { p, parent, kids: [], dir, level, trunk };
+    nodes.push(n);
+    if (parent) parent.kids.push(n);
+    return n;
+  };
+
+  const grow = (from, d, L, level, isTrunk) => {
+    if (nodes.length > MAXN) return;
+    const segs = isTrunk ? 4 + Math.floor(rand() * 2) : 2 + Math.floor(rand() * 3);
+    let dir = d, prev = from;
+    const along = [];
+    for (let i = 0; i < segs; i++) {
+      // A kink: turn a little about a random axis, and towards the light.
+      const kink = gnarl * (isTrunk ? 0.22 : 0.45) * (0.35 + rand() * 0.65);
+      dir = norm(rotate(dir, rotate(anyPerp(dir), dir, rand() * Math.PI * 2), kink));
+      dir = norm(add(dir, [0, 0, isTrunk ? 0.18 : 0.1 - level * 0.015]));
+      const n = node(add(prev.p, mul(dir, (L / segs) * (0.8 + rand() * 0.4))), prev, dir, level, isTrunk);
+      along.push(n);
+      prev = n;
     }
-    // The trunk flares out where it meets the ground.
-    if (isTrunk) for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      if (t < 0.22) radii[i] *= 1 + 0.55 * (1 - t / 0.22) ** 2;
-    }
-    branches.push({ pts, radii, level });
-    if (level >= o.levels || r1 <= minR * 1.05) {
-      // Twigs end in a point, not a stub.
-      radii[n] = Math.max(minR * 0.6, r1 * 0.6);
-      tips.push({ p: pts[n], d: dir, level, pts, r: radii });
-      return;
-    }
-    // Side branches along the upper part, spiralling round (golden angle).
-    const k = Math.max(0, Math.round(o.branching + (rand() - 0.5)));
+    if (level >= o.levels) return;
+    // Side branches from the nodes along the way, spiralling round (golden
+    // angle); none low on the trunk.
+    const from0 = isTrunk ? Math.max(1, Math.floor(segs * 0.45)) : 0;
+    const spots = along.slice(from0, -1);
+    // Fewer side twigs on the outer levels (they'd only crowd).
+    const outer = level >= o.levels - 1 ? 0.5 : 1;
+    const k = spots.length ? Math.max(0, Math.round(o.branching * outer + (rand() - 0.5))) : 0;
     let az = rand() * Math.PI * 2;
     for (let j = 0; j < k; j++) {
-      const t = (isTrunk ? 0.55 : 0.35) + (isTrunk ? 0.4 : 0.55) * ((j + rand() * 0.8) / Math.max(1, k));
-      const i = Math.min(n - 1, Math.max(1, Math.round(t * n)));
-      const at = pts[i];
-      const pd = norm(sub(pts[i + 1], pts[i - 1]));
+      const at = spots[Math.min(spots.length - 1, Math.floor(((j + rand() * 0.9) / k) * spots.length))];
       az += 2.39996 + (rand() - 0.5) * 0.6;
-      const side = rotate(anyPerp(pd), pd, az);
-      const ang = ((o.spread * (0.8 + rand() * 0.5)) * Math.PI) / 180;
-      const cd = norm(add(mul(pd, Math.cos(ang)), mul(side, Math.sin(ang))));
-      const cr = Math.max(minR, radii[i] * (0.55 + rand() * 0.15));
-      grow(at, cd, length * (0.55 + rand() * 0.2) * (1 - t * 0.35), cr, level + 1, false);
+      const side = rotate(anyPerp(at.dir), at.dir, az);
+      const ang = (o.spread * (0.85 + rand() * 0.45) * Math.PI) / 180;
+      grow(at, norm(add(mul(at.dir, Math.cos(ang)), mul(side, Math.sin(ang)))), L * (0.5 + rand() * 0.25), level + 1, false);
     }
-    // The fork at the end: two (sometimes three) branches carry on, from a
-    // smooth swelling (no steps where they meet).
-    knots.push({ p: pts[n], r: r1 });
-    const forks = rand() < 0.25 ? 3 : 2;
-    const fd = dir;
-    const base = anyPerp(fd);
+    // The fork at the end: the leader carries on almost straight, the others
+    // go off to the sides.
+    const forks = rand() < (level >= o.levels - 1 ? 0.1 : 0.3) ? 3 : 2;
+    const base = anyPerp(dir);
     const az0 = rand() * Math.PI * 2;
     for (let j = 0; j < forks; j++) {
-      const side = rotate(base, fd, az0 + (j * Math.PI * 2) / forks + (rand() - 0.5) * 0.5);
-      const ang = ((o.spread * (0.45 + rand() * 0.45)) * Math.PI) / 180;
-      const cd = norm(add(mul(fd, Math.cos(ang)), mul(side, Math.sin(ang))));
-      // Da Vinci: the children's cross-sections add up to the parent's.
-      const cr = Math.max(minR, r1 * (j === 0 ? 0.95 : forks === 2 ? 0.8 : 0.7) * (0.92 + rand() * 0.12));
-      grow(pts[n], cd, length * (0.68 + rand() * 0.18), cr, level + 1, false);
+      const side = rotate(base, dir, az0 + (j * Math.PI * 2) / forks + (rand() - 0.5) * 0.6);
+      const ang = (o.spread * (j === 0 ? 0.25 + rand() * 0.25 : 0.6 + rand() * 0.45) * Math.PI) / 180;
+      grow(prev, norm(add(mul(dir, Math.cos(ang)), mul(side, Math.sin(ang)))), L * (0.68 + rand() * 0.17), level + 1, false);
     }
   };
 
   const trunks = Math.max(1, Math.min(5, Math.round(o.trunks)));
-  const trunkR = H * 0.045 * Math.max(0.3, +o.thickness || 1) / Math.sqrt(trunks);
-  // The trunk takes ~40 % of the height; the levels above add the rest.
-  let sum = 0;
-  for (let l = 0, f = 1; l <= o.levels; l++, f *= 0.78) sum += f * (l === 0 ? 1 : 0.75);
-  const trunkLen = (H * 0.92) / sum;
+  const trunkR = (H * 0.045 * Math.max(0.3, +o.thickness || 1)) / Math.sqrt(trunks);
   const lean = ((+o.lean || 0) * Math.PI) / 180;
   const leanAz = rand() * Math.PI * 2;
+  const bases = [];
   for (let t = 0; t < trunks; t++) {
     const az = leanAz + (t * Math.PI * 2) / trunks;
-    const out = trunks > 1 ? 0.22 : 0;
+    const out = trunks > 1 ? 0.25 : 0;
     const d = norm([Math.cos(az) * (Math.sin(lean) + out), Math.sin(az) * (Math.sin(lean) + out), 1]);
-    const p = trunks > 1 ? [Math.cos(az) * trunkR * 0.9, Math.sin(az) * trunkR * 0.9, 0] : [0, 0, 0];
-    grow([p[0], p[1], -trunkR * 0.5], d, trunkLen * (1 + (rand() - 0.5) * 0.15), trunkR, 0, true);
+    const p0 = trunks > 1 ? [Math.cos(az) * trunkR * 0.9, Math.sin(az) * trunkR * 0.9, -trunkR * 0.5] : [0, 0, -trunkR * 0.5];
+    const root = node(p0, null, d, 0, true);
+    bases.push(root);
+    grow(root, d, H * 0.38 * (1 + (rand() - 0.5) * 0.15), 0, true);
   }
 
-  // Stretch (or squeeze) the branches to the asked height; thicknesses stay.
+  // Stretch (or squeeze) to the asked height; thicknesses don't depend on it.
   let top = 0;
-  for (const b of branches) for (const p of b.pts) top = Math.max(top, p[2]);
+  for (const n of nodes) top = Math.max(top, n.p[2]);
   const k = top > 0 ? H / top : 1;
-  for (const b of branches) for (const p of b.pts) (p[0] *= k), (p[1] *= k), (p[2] *= k);
-  for (const kn of knots) kn.p = [kn.p[0], kn.p[1], kn.p[2]]; // (already scaled with its branch)
+  for (const n of nodes) n.p = [n.p[0] * k, n.p[1] * k, n.p[2] * k];
+
+  // Thickness from what a branch carries (pipe model): the cross-section at
+  // any point is about the sum of the twigs above it, so twigs are thin, the
+  // trunk is thick and everything tapers in between.
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    n.tips = n.kids.length ? n.kids.reduce((s, c) => s + c.tips, 0) : 1;
+  }
+  const E = 2.3;
+  for (const root of bases) {
+    const scale = trunkR / Math.pow(root.tips, 1 / E);
+    const stack = [root];
+    while (stack.length) {
+      const n = stack.pop();
+      n.r = Math.max(minR, scale * Math.pow(n.tips, 1 / E));
+      if (!n.kids.length) n.r = minR * 0.55; // ends in a point
+      stack.push(...n.kids);
+    }
+  }
+
+  // Branches to mesh: the strongest child carries the branch on (so the bark
+  // runs through the fork), the others start their own, from the node.
+  const branches = [];
+  const tips = [];
+  const startChain = (from, first) => {
+    const pts = from ? [from.p] : [], radii = from ? [first.r * 1.02] : [];
+    let n = first;
+    for (;;) {
+      pts.push(n.p);
+      radii.push(n.r);
+      if (!n.kids.length) {
+        if (n.parent) {
+          const a = n.parent.parent;
+          tips.push({ p: n.p, d: n.dir, level: n.level, pts: a ? [a.p, n.parent.p, n.p] : [n.parent.p, n.p] });
+        }
+        break;
+      }
+      const main = n.kids.reduce((m, c) => (c.tips > m.tips ? c : m), n.kids[0]);
+      for (const c of n.kids) if (c !== main) side.push([n, c]);
+      n = main;
+    }
+    branches.push({ pts, radii, level: first.level, trunk: !from });
+  };
+  const side = [];
+  for (const root of bases) startChain(null, root);
+  while (side.length) {
+    const [from, c] = side.shift();
+    startChain(from, c);
+  }
 
   // Roots: from inside the trunk, out and down onto the ground.
   const roots = [];
@@ -170,7 +205,7 @@ export function growTree(options = {}) {
     }
     roots.push({ pts, radii, level: 0 });
   }
-  return { branches, roots, tips, knots, trunkR, options: o, H };
+  return { branches, roots, tips, knots: [], trunkR, options: o, H };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,34 +253,50 @@ function barkAt(noise, u, v, w) {
   return Math.min(1, Math.max(0, 1 - h));
 }
 
-// Catmull-Rom: a smooth curve through the branch's points, sampled about
-// every `step` mm, with its radii.
+// The branch's path sampled about every `step` mm: straight between its
+// nodes, with only the corners rounded a little (over about its own
+// thickness), as on real wood.
 function smoothPath(pts, radii, step) {
   const n = pts.length;
   const out = [], rad = [];
   for (let i = 0; i + 1 < n; i++) {
-    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
-    const segLen = len(sub(p2, p1));
-    const k = Math.max(1, Math.ceil(segLen / step));
+    const k = Math.max(1, Math.ceil(len(sub(pts[i + 1], pts[i])) / step));
     for (let j = 0; j < k; j++) {
-      const t = j / k, t2 = t * t, t3 = t2 * t;
-      const c = (a, b, cc, d) => 0.5 * (2 * b + (-a + cc) * t + (2 * a - 5 * b + 4 * cc - d) * t2 + (-a + 3 * b - 3 * cc + d) * t3);
-      out.push([c(p0[0], p1[0], p2[0], p3[0]), c(p0[1], p1[1], p2[1], p3[1]), c(p0[2], p1[2], p2[2], p3[2])]);
+      const t = j / k;
+      out.push(add(pts[i], mul(sub(pts[i + 1], pts[i]), t)));
       rad.push(radii[i] + (radii[i + 1] - radii[i]) * t);
     }
   }
-  out.push(pts[n - 1]);
+  out.push([...pts[n - 1]]);
   rad.push(radii[n - 1]);
-  return { pts: out, radii: rad };
+  // Round the corners: average over a window about as long as it is thick.
+  const sm = out.map((p, i) => {
+    const w = Math.min(6, Math.max(0, Math.round((rad[i] * 1.2) / step)));
+    if (!w || i === 0 || i === out.length - 1) return p;
+    let c = [0, 0, 0], m = 0;
+    for (let q = Math.max(0, i - w); q <= Math.min(out.length - 1, i + w); q++) (c = add(c, out[q])), m++;
+    return mul(c, 1 / m);
+  });
+  return { pts: sm, radii: rad };
 }
 
 // Swept tube with bark: rings along the smoothed branch (frames carried along
 // so they don't twist), closed at both ends with a rounded tip. Returns
 // { vert, tri } – a closed, consistently wound surface.
 function tubeMesh(branch, { bark, noise, edge = 0.4, maxSeg = 96 }) {
-  const { pts, radii } = smoothPath(branch.pts, branch.radii, edge * 1.3);
+  // Thin twigs need fewer rings (their bark is too fine to see anyway).
+  const thin = branch.radii[0] < 1.3;
+  const { pts, radii } = smoothPath(branch.pts, branch.radii, edge * (thin ? 2.6 : 1.3));
+  // The trunk flares out where it meets the ground.
+  if (branch.trunk) {
+    const z0 = pts[0][2], fh = radii[0] * 3.5;
+    for (let i = 0; i < pts.length; i++) {
+      const t = (pts[i][2] - z0) / fh;
+      if (t < 1) radii[i] *= 1 + 0.6 * (1 - Math.max(0, t)) ** 2;
+    }
+  }
   const n = pts.length;
-  const seg = Math.max(8, Math.min(maxSeg, Math.round((2 * Math.PI * radii[0]) / edge)));
+  const seg = Math.max(thin ? 7 : 8, Math.min(maxSeg, Math.round((2 * Math.PI * radii[0]) / (thin ? edge * 1.3 : edge))));
   const T = pts.map((p, i) => norm(sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)])));
   let N = anyPerp(T[0]);
   const vert = [];
@@ -386,7 +437,8 @@ export function buildTree(wasm, options = {}) {
         // A spray: pairs of leaves along the last part of the twig, angled
         // forwards, the last one at the tip – like a fern or an acacia.
         const pts = tip.pts, n = pts.length - 1;
-        const pairs = o.leaves === 'crown' ? 5 : 4;
+        // About 2,400 leaves at most: with many twigs, smaller sprays.
+        const pairs = Math.max(1, Math.min(o.leaves === 'crown' ? 5 : 4, Math.floor((o.leaves === 'crown' ? 3200 : 2400) / (2 * tips.length + 1))));
         const up = [0, 0, 1];
         for (let j = 0; j <= pairs; j++) {
           const t = 0.35 + 0.65 * (j / pairs);
