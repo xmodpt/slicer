@@ -449,13 +449,13 @@ export function buildTree(wasm, options = {}) {
       const rand = rng(o.seed + 99);
       const frond = +o.leafSize || tree.H * 0.12; // frond length, mm
       const thick = Math.max(0.6, frond * 0.04); // leaflets stay printable
-      const res = o.detail === 'draft' ? [4, 5] : o.detail === 'fine' ? [7, 8] : [5, 6];
+      const res = o.detail === 'draft' ? [4, 4] : o.detail === 'fine' ? [7, 8] : [4, 6];
       // A leaflet of length 1, width 0.42 and thickness 1 (scaled per use).
       const leaflet = solidOf(leafMesh(1, 0.42, 1, { rows: res[0], around: res[1] }));
       if (!leaflet) throw new Error('leaf');
-      // Not every twig needs a frond on a big tree: at most ~450 (~700 dense).
+      // Not every twig needs a frond on a big tree: at most ~260 (~300 dense).
       const dense = o.leaves === 'crown';
-      const limit = dense ? 700 : 450;
+      const limit = dense ? 150 : 260; // fronds (dense: two per twig end)
       const all = tree.tips;
       const every = Math.max(1, all.length / limit);
       const pairs = dense ? 10 : 9;

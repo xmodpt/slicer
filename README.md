@@ -153,7 +153,7 @@ solid.
   running along the wood, split by cracks, up to 0.9 mm deep – the trunk
   flares at the ground, and leaves are fern-like fronds: a thin arching stem
   with pairs of small pointed leaflets, largest at the base and smaller towards
-  the tip (about 450 fronds at most, ~700 when dense).
+  the tip (about 260 fronds at most, ~300 when dense).
   A tree is 100–500 thousand triangles and takes a few seconds (leafy ones
   longer).
   **Grow tree**, or **🎲 Another one** for a different tree with the same
