@@ -16,7 +16,7 @@
 
 // The recipe language, as told to the AI (kept in server/ so the desktop
 // app's server has it too).
-import { buildTree, TREE_DEFAULTS } from './tree.js';
+import { buildTree, TREE_DEFAULTS, TREE_PRESETS } from './tree.js';
 
 export { RECIPE_HELP } from '../server/recipe-help.js';
 
@@ -35,6 +35,11 @@ function treeOptions(a) {
   n('leafSize', 0, 100); n('minTwig', 0.3, 5); n('seed', 0, 1e9);
   if (['none', 'clusters', 'crown'].includes(a.leaves)) o.leaves = a.leaves;
   if (['draft', 'normal', 'fine'].includes(a.detail)) o.detail = a.detail;
+  // A tree type brings its own settings; the ones given still win.
+  if (['generic', 'oak', 'pine', 'birch', 'willow', 'acacia'].includes(a.type)) {
+    o.type = a.type;
+    for (const [k, v] of Object.entries(TREE_PRESETS[a.type])) if (a[k] === undefined) o[k] = v;
+  }
   else if (a.leaves === true) o.leaves = 'clusters';
   return { ...TREE_DEFAULTS, ...o };
 }

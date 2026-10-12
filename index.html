@@ -39,6 +39,14 @@
       <details id="tree-gen" class="tree-gen">
         <summary>🌳 Tree generator – no AI needed</summary>
         <div class="tree-grid">
+          <label title="Sets how it grows and its leaves; the sliders are set to suit it (change them after if you like)">Tree type <select id="tg-type">
+            <option value="generic">Generic</option>
+            <option value="oak">Oak</option>
+            <option value="pine">Pine</option>
+            <option value="birch">Birch</option>
+            <option value="willow">Willow</option>
+            <option value="acacia">Acacia (feathery leaves)</option>
+          </select></label>
           <label>Height <input id="tg-height" type="number" min="20" max="1000" value="120" /> mm</label>
           <label>Trunks <input id="tg-trunks" type="number" min="1" max="5" value="1" /></label>
           <label>Branch levels <input id="tg-levels" type="range" min="2" max="6" value="5" /></label>
@@ -49,7 +57,7 @@
           <label>Lean <input id="tg-lean" type="range" min="0" max="35" value="0" /></label>
           <label>Roots <input id="tg-roots" type="number" min="0" max="12" value="5" /></label>
           <label>Bark <input id="tg-bark" type="range" min="0" max="100" value="60" /></label>
-          <label>Leaves <select id="tg-leaves"><option value="none">None (bare)</option><option value="clusters">Sprays</option><option value="crown">Dense</option></select></label>
+          <label>Leaves <select id="tg-leaves"><option value="none">None (bare)</option><option value="clusters">Leaves</option><option value="crown">Dense</option></select></label>
           <label>Thinnest twig <input id="tg-minTwig" type="number" min="0.4" max="3" step="0.1" value="0.7" /> mm</label>
           <label title="Finer = smoother, more bark detail, more triangles and a longer wait">Detail <select id="tg-detail"><option value="draft">Draft (fast)</option><option value="normal" selected>Normal</option><option value="fine">Fine</option></select></label>
         </div>

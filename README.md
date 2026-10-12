@@ -145,9 +145,24 @@ ground (cut flat for the print bed) and, if wanted, sprays of leaves on the
 twigs. Every branch is a swept tube; manifold-3d joins them into one closed
 solid.
 
+- **Tree type** – each grows its own way and has its own leaves; choosing
+  one sets the sliders to suit it:
+
+  | Type | Shape | Leaves |
+  |---|---|---|
+  | Oak | wide, low, gnarled | lobed oak leaves in clusters |
+  | Pine | one straight trunk to the top, whorls of level branches (a cone) | tufts of needles |
+  | Birch | slender, reaching up, fine drooping twigs | small oval leaves |
+  | Willow | branches arch over and hang down | long narrow hanging leaves |
+  | Acacia | flat-topped, spreading crown | feathery compound leaves (pairs of leaflets) |
+  | Generic | an ordinary broadleaf tree | oval leaves |
+
+  Leaf counts are random – every cluster, frond and needle tuft has its own
+  number – and twigs zigzag (more pieces, each turning a little). Branches
+  stay above a clear trunk (willows hang, pines branch from low down).
 - **✨ AI → Make a new object… → 🌳 Tree generator**: height, trunks, branch
   levels, branches, spread, gnarled, thickness, lean, roots, bark, leaves
-  (none / sprays / dense), the thinnest twig (keep it ≥ 0.8 mm for FDM) and
+  (none / leaves / dense), the thinnest twig (keep it ≥ 0.8 mm for FDM) and
   the detail (draft / normal / fine). Branches follow smooth curves with
   edges about 0.45 mm long (normal), the bark is cut in with noise – ridges
   running along the wood, split by cracks, up to 0.9 mm deep – the trunk

@@ -10,6 +10,7 @@ import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
 import { buildShape, manifoldToSoup } from './shapegen.js';
+import { TREE_PRESETS } from './tree.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -1473,7 +1474,7 @@ async function growTreeFromPanel(newSeed) {
     tree: {
       height: v('height'), trunks: v('trunks'), levels: v('levels'), branching: v('branching'), spread: v('spread'),
       gnarl: v('gnarl') / 100, thickness: v('thickness') / 100, lean: v('lean'), roots: v('roots'), bark: v('bark') / 100,
-      leaves: $('tg-leaves').value, minTwig: v('minTwig'), detail: $('tg-detail').value, seed: treeSeed,
+      leaves: $('tg-leaves').value, minTwig: v('minTwig'), detail: $('tg-detail').value, type: $('tg-type').value, seed: treeSeed,
     },
   };
   make.busy = true;
@@ -1501,6 +1502,13 @@ async function growTreeFromPanel(newSeed) {
     $('tg-grow').disabled = $('tg-new').disabled = false;
   }
 }
+// A tree type sets the sliders to suit it.
+$('tg-type').addEventListener('change', () => {
+  const p = TREE_PRESETS[$('tg-type').value];
+  if (!p) return;
+  const set = { levels: p.levels, branching: p.branching, spread: p.spread, gnarl: Math.round(p.gnarl * 100), thickness: Math.round(p.thickness * 100), lean: p.lean, roots: p.roots };
+  for (const [k, val] of Object.entries(set)) $('tg-' + k).value = val;
+});
 $('tg-grow').addEventListener('click', () => growTreeFromPanel(false));
 $('tg-new').addEventListener('click', () => growTreeFromPanel(true));
 for (const el of document.querySelectorAll('#tree-gen input, #tree-gen select')) el.addEventListener('keydown', (e) => e.stopPropagation());
