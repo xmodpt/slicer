@@ -137,18 +137,36 @@ export function growTree(options = {}) {
   // Thickness from what a branch carries (pipe model): the cross-section at
   // any point is about the sum of the twigs above it, so twigs are thin, the
   // trunk is thick and everything tapers in between.
+  // Also how far it still is to the farthest tip: that shrinks with every
+  // step outwards, so a branch keeps getting thinner all the way to its end,
+  // not only where side twigs leave.
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
     n.tips = n.kids.length ? n.kids.reduce((s, c) => s + c.tips, 0) : 1;
+    n.down = n.kids.length ? Math.max(...n.kids.map((c) => c.down + len(sub(c.p, n.p)))) : 0;
   }
   const E = 2.3;
+  const tipR = minR * 0.55; // the very end of a twig: a point
+  const twigEnd = Math.max(4, H * 0.05); // mm over which a twig narrows to it
   for (const root of bases) {
     const scale = trunkR / Math.pow(root.tips, 1 / E);
     const stack = [root];
     while (stack.length) {
       const n = stack.pop();
-      n.r = Math.max(minR, scale * Math.pow(n.tips, 1 / E));
-      if (!n.kids.length) n.r = minR * 0.55; // ends in a point
+      const byTips = scale * Math.pow(n.tips, 1 / E);
+      const byLength = tipR + (trunkR - tipR) * Math.pow(n.down / root.down, 0.85);
+      // Printable: at least the thinnest-twig size, except over the last few
+      // mm where a twig narrows to its point (still thinner every step).
+      const floor = n.down >= twigEnd ? minR * (1 + 0.004 * (n.down - twigEnd)) : tipR + (minR - tipR) * (n.down / twigEnd);
+      n.r = Math.max(floor, Math.sqrt(byTips * byLength));
+      // Thinner than where it grows from: a little along the branch, clearly
+      // for a side branch.
+      if (n.parent) n.r = Math.min(n.r, n.parent.r * (n.side ? 0.82 : 0.97));
+      if (!n.kids.length) n.r = tipR;
+      if (n.kids.length) {
+        const main = n.kids.reduce((m, c) => (c.tips > m.tips ? c : m), n.kids[0]);
+        for (const c of n.kids) c.side = c !== main;
+      }
       stack.push(...n.kids);
     }
   }
@@ -158,7 +176,8 @@ export function growTree(options = {}) {
   const branches = [];
   const tips = [];
   const startChain = (from, first) => {
-    const pts = from ? [from.p] : [], radii = from ? [first.r * 1.02] : [];
+    // A side branch starts inside its parent, a little thinner than it.
+    const pts = from ? [from.p] : [], radii = from ? [Math.min(first.r * 1.08, from.r * 0.9)] : [];
     let n = first;
     for (;;) {
       pts.push(n.p);

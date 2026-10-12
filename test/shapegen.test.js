@@ -152,3 +152,14 @@ test('the tree node grows a closed, one-piece tree of the asked height, flat on 
   const other = solid({ type: 'bonsai', height: 80, levels: 3, seed: 9, leaves: true });
   assert.ok(other.stats().watertight && other.stats().parts === 1);
 });
+
+test('tree branches get thinner at every step from the trunk to each tip, and stay printable', async () => {
+  const { growTree } = await import('../src/tree.js');
+  for (const seed of [1, 2, 3]) {
+    const t = growTree({ seed, minTwig: 0.7 });
+    for (const b of t.branches) {
+      for (let i = 1; i < b.radii.length; i++) assert.ok(b.radii[i] < b.radii[i - 1], `seed ${seed}: step ${i} of a branch is not thinner`);
+      assert.ok(b.radii.at(-1) <= 0.7 * 0.56, 'ends in a point');
+    }
+  }
+});
