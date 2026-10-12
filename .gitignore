@@ -3,5 +3,5 @@ dist/
 .env
 .env.*
 
-# AI settings with API keys (from later versions)
+# AI settings with API keys (from older versions)
 ai-settings.json

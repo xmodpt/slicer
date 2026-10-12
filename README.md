@@ -27,12 +27,6 @@ start shows a warning:
   or *"is damaged"* → right-click the app → **Open**, or in Terminal:
   `xattr -cr "/Applications/STL Mesh Editor.app"`.
 
-**Ask AI** (optional): put a file named `.env` containing
-`ANTHROPIC_API_KEY=sk-ant-...` next to the portable .exe, or in the app's data
-folder (`%APPDATA%\STL Mesh Editor` on Windows, `~/Library/Application
-Support/STL Mesh Editor` on macOS, `~/.config/STL Mesh Editor` on Linux), and
-restart the app.
-
 **Building them:** the workflow `.github/workflows/desktop-apps.yml` builds
 all of them on GitHub's Windows, macOS and Linux machines. On GitHub:
 *Releases → Draft a new release* → *Choose a tag*: type e.g. `v1.0.1` (on the
@@ -73,108 +67,6 @@ other computer – `localhost` only works on the Pi itself.
   `sudo ufw allow 5173` (dev) / `sudo ufw allow 4173` (`npm start`).
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
-
-### AI (optional) – Claude, ChatGPT, Gemini or a local AI
-
-The AI features (*Ask AI to identify objects*, *Make a new object*) use an
-AI of your choice. Choose the AI in **✨ AI → AI settings…**:
-
-| AI | Key from | Notes |
-|---|---|---|
-| **Claude** (Anthropic) – default | console.anthropic.com | model `claude-opus-5-5` |
-| **ChatGPT** (OpenAI) | platform.openai.com/api-keys | any vision model, e.g. `gpt-4o` |
-| **Gemini** (Google) | aistudio.google.com/apikey | free tier (no card, rate-limited, Flash models only), default `gemini-flash-latest` (always the current Flash model) |
-| **OpenRouter** | openrouter.ai/keys | free option: model `openrouter/free` picks a free model that can see images (rate-limited) |
-| **Local / other** | – (usually no key) | any OpenAI-compatible server: **Ollama** or **LM Studio** on a PC, with a vision model (e.g. `ollama pull llama3.2-vision`, address `http://<PC>:11434/v1`). Free and offline, but less accurate; a Raspberry Pi is too slow to run one. |
-
-Paste the key, **Save**, then **Test** – it sends a tiny request and shows
-the answer. Settings and keys are stored on the machine running the app
-(`ai-settings.json` in this folder, readable only by its owner and ignored
-by git; the desktop app keeps it in its data folder) and are never sent to the
-browser. Environment variables still work too (`ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `GEMINI_API_KEY`, also from `.env`). Everything else in the
-app works without any AI. Each analysis is one request with a few images –
-typically a few cents with the paid AIs.
-
-### Make a new object with AI (free with Gemini)
-
-**✨ AI → Make a new object…** opens a prompt panel: describe the object –
-*“a candle 100 mm tall with drips”*, *“a wheel 50 mm across with 6 spokes and
-a 5 mm axle hole”* – and press Enter. Add reference pictures with 📎, by
-dragging them onto the panel or by pasting (up to 4; the AI must be able to
-see images – Gemini, ChatGPT, Claude and OpenRouter's free router can).
-
-The AI doesn't draw triangles: it answers with a *shape recipe* – boxes,
-cylinders and cones, spheres, rings, outlines turned around an axis (candles,
-vases, rims) or pushed up (flat shapes), rods between two points (branches,
-legs, handles), smooth skins around shapes (crowns, fruit, rocks), copies
-around an axis (spokes, teeth), and adding, cutting away and overlapping them
-(`src/shapegen.js`). A design that doesn't build, or has details hidden inside
-the body, goes back to the AI with what went wrong (up to twice). Results are
-stylised, like a toy or a game prop – no bark, leaves or fine texture.
-The editor builds the recipe with the manifold-3d geometry library, so the
-result is always a closed, printable solid in mm, standing on the plate.
-
-- Ask for changes in plain words (“make it taller”, “thicker spokes”) – with
-  *Change the last one* ticked, the AI gets the previous recipe and edits it,
-  and the old object is replaced.
-- *Add next to the open model* puts the object beside what is open as a model
-  of its own; off, it replaces it. Ctrl+Z undoes either.
-- It suits made, geometric things (candles, wheels, knobs, boxes, vases,
-  brackets, chess pieces); organic shapes (animals, faces) come out simple.
-- Free AIs are often busy (a per-minute limit, the daily free allowance used
-  up, or Google's servers overloaded). The app then waits a moment and asks
-  again, tries Gemini's other free models (`gemini-flash-latest`,
-  `gemini-flash-lite-latest`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`),
-  and finally **OpenRouter's free models if you've saved an OpenRouter key
-  too** – it says which one answered. Saving both free keys is the most
-  reliable free setup.
-- Free: choose **Gemini** in AI settings with a free key from
-  aistudio.google.com/apikey (no card). A request is text plus the pictures.
-
-### Tree generator (no AI needed)
-
-Trees are grown by an algorithm (`src/tree.js`), not drawn from shapes: one
-or more trunks fork again and again. Each branch is a few nearly straight
-pieces with a small kink at each node (where side twigs come off), as wood
-grows; its thickness comes from how many twigs it carries (the pipe model of
-real trees), so the trunk is thick, every branch tapers and twigs end in
-fine points. The strongest fork carries the branch on, so the bark runs
-through the joint, with bark grooves, roots spreading on the
-ground (cut flat for the print bed) and, if wanted, sprays of leaves on the
-twigs. Every branch is a swept tube; manifold-3d joins them into one closed
-solid.
-
-- **Tree type** – each grows its own way and has its own leaves; choosing
-  one sets the sliders to suit it:
-
-  | Type | Shape | Leaves |
-  |---|---|---|
-  | Oak | wide, low, gnarled | lobed oak leaves in clusters |
-  | Pine | one straight trunk to the top, whorls of level branches (a cone) | tufts of needles |
-  | Birch | slender, reaching up, fine drooping twigs | small oval leaves |
-  | Willow | branches arch over and hang down | long narrow hanging leaves |
-  | Acacia | flat-topped, spreading crown | feathery compound leaves (pairs of leaflets) |
-  | Generic | an ordinary broadleaf tree | oval leaves |
-
-  Leaf counts are random – every cluster, frond and needle tuft has its own
-  number – and twigs zigzag (more pieces, each turning a little). Branches
-  stay above a clear trunk (willows hang, pines branch from low down).
-- **✨ AI → Make a new object… → 🌳 Tree generator**: height, trunks, branch
-  levels, branches, spread, gnarled, thickness, lean, roots, bark, leaves
-  (none / leaves / dense), the thinnest twig (keep it ≥ 0.8 mm for FDM) and
-  the detail (draft / normal / fine). Branches follow smooth curves with
-  edges about 0.45 mm long (normal), the bark is cut in with noise – ridges
-  running along the wood, split by cracks, up to 0.9 mm deep – the trunk
-  flares at the ground, and leaves are fern-like fronds: a thin arching stem
-  with pairs of small pointed leaflets, largest at the base and smaller towards
-  the tip (about 260 fronds at most, ~300 when dense).
-  A tree is 100–500 thousand triangles and takes a few seconds (leafy ones
-  longer).
-  **Grow tree**, or **🎲 Another one** for a different tree with the same
-  settings (with *Change the last one* ticked it replaces the last tree).
-- Through the AI: “a gnarly bare tree”, “a bonsai with leaves”, “three
-  birches on a base” – the AI picks the generator's settings.
 
 ## Modes
 
@@ -219,7 +111,7 @@ all is well it says the model is solid and ready to print.
   as ZIP or separate STLs), Undo/Redo, the file name, then **View ▾** (standard
   views, camera, rotation mode, hole edges, wireframe, colour by object),
   **⚙ Settings** (place on plate when opening, close cut faces when splitting,
-  sub-object sensitivity) and **✨ AI**.
+  sub-object sensitivity).
 - **Mode switch** (top bar): Normal | Edit | Cut.
 - **Tool rail** (left of the 3D view) – only the current mode's tools:
   Normal: Select models, Move, Rotate, Resize, Lay flat, Delete · Edit:
@@ -315,10 +207,6 @@ A tool's key switches to its mode when needed (e.g. `C` goes to Cut mode).
    If sub-objects come out merged, lower *Split at creases over*; if the model
    is chopped into too many pieces, raise it. *Sample* loads a cake with
    candles to try it.
-
-   After *Ask AI*, the tree shows the AI's names and groups, items it suggests
-   removing are tagged, and clicking one part of a group with the Object tool
-   selects the whole group. Hover over a row to read the AI's reasoning.
 3. **Delete** the selection (`Delete` / `Backspace`). Hole rims are outlined in red,
    and the inside of the model shows through in dark red.
 4. **Close holes** (`H`) to cap every hole – or only holes up to N edges.
@@ -413,11 +301,6 @@ holes, parts and whether the mesh is watertight.
   and filling, selection helpers. No browser dependencies.
 - `src/segment.js` – splits the mesh into suggested objects at concave creases.
 - `src/samples.js` – the built-in cake-with-candles sample.
-- `src/shapegen.js` – builds the AI's shape recipes into solids (manifold-3d).
-- `src/tree.js` – the tree generator (branching skeleton, bark, roots, leaves).
-- `server/ai.js` – server-side AI requests (Claude, OpenAI-compatible) for *Ask AI*
-  and *Make a new object*, and the AI settings (hooked into the Vite server by
-  `vite.config.js`).
 - `src/gizmo.js` – the navigation gizmo.
 - `src/cut.js` – plane cut with caps and connector pins/holes.
 - `src/cutgizmo.js` – the cut plane's orb (slide / tilt / move handles).

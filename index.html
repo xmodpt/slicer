@@ -18,84 +18,6 @@
       </div>
     </div>
 
-    <!-- AI settings -->
-    <!-- Make with AI: a prompt "terminal" -->
-    <div id="make-panel" class="make-panel" hidden>
-      <div class="make-head">
-        <b>✨ Make with AI</b>
-        <span id="make-provider" class="muted"></span>
-        <button id="make-settings" class="link-btn" title="Choose the AI (Gemini and OpenRouter have free models)">AI settings…</button>
-        <button class="modal-close" id="make-close" title="Close">×</button>
-      </div>
-      <div id="make-log" class="make-log">
-        <div class="muted">Describe an object – “a candle 100 mm tall with drips”, “a wheel 50 mm across with 6 spokes and a 5 mm axle hole”. Add pictures as a reference (📎, drag them here or paste). Then ask for changes: “make it taller”, “thicker spokes”.</div>
-      </div>
-      <div id="make-pics" class="make-pics"></div>
-      <div class="make-input">
-        <label class="make-attach" title="Add reference pictures">📎<input id="make-file" type="file" accept="image/*" multiple hidden /></label>
-        <textarea id="make-prompt" rows="2" placeholder="What should I make? (Enter sends, Shift+Enter new line)"></textarea>
-        <button id="make-go" class="primary">Make</button>
-      </div>
-      <details id="tree-gen" class="tree-gen">
-        <summary>🌳 Tree generator – no AI needed</summary>
-        <div class="tree-grid">
-          <label title="Sets how it grows and its leaves; the sliders are set to suit it (change them after if you like)">Tree type <select id="tg-type">
-            <option value="generic">Generic</option>
-            <option value="oak">Oak</option>
-            <option value="pine">Pine</option>
-            <option value="birch">Birch</option>
-            <option value="willow">Willow</option>
-            <option value="acacia">Acacia (feathery leaves)</option>
-          </select></label>
-          <label>Height <input id="tg-height" type="number" min="20" max="1000" value="120" /> mm</label>
-          <label>Trunks <input id="tg-trunks" type="number" min="1" max="5" value="1" /></label>
-          <label>Branch levels <input id="tg-levels" type="range" min="2" max="6" value="5" /></label>
-          <label>Branches <input id="tg-branching" type="range" min="0" max="4" value="2" /></label>
-          <label>Spread <input id="tg-spread" type="range" min="15" max="75" value="38" /></label>
-          <label>Gnarled <input id="tg-gnarl" type="range" min="0" max="100" value="35" /></label>
-          <label>Thickness <input id="tg-thickness" type="range" min="50" max="220" value="100" /></label>
-          <label>Lean <input id="tg-lean" type="range" min="0" max="35" value="0" /></label>
-          <label>Roots <input id="tg-roots" type="number" min="0" max="12" value="5" /></label>
-          <label>Bark <input id="tg-bark" type="range" min="0" max="100" value="60" /></label>
-          <label>Leaves <select id="tg-leaves"><option value="none">None (bare)</option><option value="clusters">Leaves</option><option value="crown">Dense</option></select></label>
-          <label>Thinnest twig <input id="tg-minTwig" type="number" min="0.4" max="3" step="0.1" value="0.7" /> mm</label>
-          <label title="Finer = smoother, more bark detail, more triangles and a longer wait">Detail <select id="tg-detail"><option value="draft">Draft (fast)</option><option value="normal" selected>Normal</option><option value="fine">Fine</option></select></label>
-        </div>
-        <div class="row">
-          <button id="tg-grow" class="primary">Grow tree</button>
-          <button id="tg-new" title="Same settings, a different tree">🎲 Another one</button>
-        </div>
-      </details>
-      <div class="make-opts">
-        <label class="check" title="Off: start a new object from scratch"><input id="make-refine" type="checkbox" disabled /> Change the last one</label>
-        <label class="check" title="Off: the new object replaces what is open"><input id="make-add" type="checkbox" checked /> Add next to the open model</label>
-      </div>
-    </div>
-
-    <div id="ai-settings" class="modal" hidden>
-      <div class="modal-box left">
-        <button class="modal-close" id="ai-settings-close" title="Close">×</button>
-        <h2>AI settings</h2>
-        <p class="muted">The AI names the parts of your model and makes new shapes from a description. Pick any AI you have an account with – or a free one running on your own computer.</p>
-        <label class="field">AI <select id="ai-provider"></select></label>
-        <label class="field">Model <input id="ai-model" type="text" autocomplete="off" spellcheck="false" /></label>
-        <label class="field" id="ai-baseurl-row">Server address <input id="ai-baseurl" type="text" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.20:11434/v1" /></label>
-        <label class="field" id="ai-key-row">API key <input id="ai-key" type="password" autocomplete="off" spellcheck="false" /></label>
-        <p class="muted" id="ai-key-help"></p>
-        <div class="row">
-          <button id="ai-save" class="primary">Save</button>
-          <button id="ai-test" title="Send a tiny request to check the AI answers">Test</button>
-          <button id="ai-clearkey" title="Forget the saved key for this AI">Remove key</button>
-        </div>
-        <p id="ai-status" class="ai-status"></p>
-        <details class="muted">
-          <summary>Free, on your own computer (no key)</summary>
-          <p>Install <b>Ollama</b> (ollama.com) on a PC with a decent graphics card, then run <code>ollama pull llama3.2-vision</code>. Start it so other devices can reach it (<code>OLLAMA_HOST=0.0.0.0 ollama serve</code>), choose <i>Local / other</i> here and set the address to <code>http://&lt;that PC's IP&gt;:11434/v1</code>. LM Studio works the same way (address ending in <code>/v1</code>). Local models are less accurate than Claude or ChatGPT for this, and a Raspberry Pi is too slow to run one.</p>
-        </details>
-        <p class="muted">Keys are saved on the computer running the app (the Pi, or the desktop app's data folder) and never sent to the browser.</p>
-      </div>
-    </div>
-
     <!-- About -->
     <div id="about" class="modal" hidden>
       <div class="modal-box">
@@ -109,9 +31,8 @@
           <li><b>Edit mode</b> – select, delete and split parts, close holes, group and ungroup</li>
           <li><b>Cut mode</b> – plane cuts with pins, holes or dowels, chosen automatically or placed by hand</li>
           <li><b>Fix model</b> – find floating parts and holes and fix them in one click</li>
-          <li><b>Ask AI</b> – name the objects in a model (needs an Anthropic API key)</li>
         </ul>
-        <p class="muted">Press <kbd>?</kbd> for all keyboard shortcuts. Built with Three.js. Everything runs on your computer – your models are never uploaded (except the views sent to the AI when you ask it).</p>
+        <p class="muted">Press <kbd>?</kbd> for all keyboard shortcuts. Built with Three.js. Everything runs on your computer – your models are never uploaded.</p>
       </div>
     </div>
 
@@ -186,20 +107,6 @@
             <label class="check"><input id="close-on-exit" type="checkbox" checked /> Close holes when leaving Edit mode</label>
             <button id="about-open" class="menu-link">About STL Mesh Editor…</button>
             <label class="field" title="Lower = split the model into more, smaller sub-objects">Split objects at creases over <input id="obj-angle" type="range" min="5" max="60" value="20" /> <span id="obj-angle-val">20°</span></label>
-          </div>
-        </div>
-        <div class="menu">
-          <button class="tb-btn ai" data-menu title="Let AI name the objects and suggest what to remove">
-            <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>AI
-          </button>
-          <div class="menu-panel wide">
-            <p class="menu-title">Identify objects with AI <button id="ai-settings-open" class="link-btn" title="Choose Claude, ChatGPT, Gemini or a local AI, and enter its key">AI settings…</button></p>
-            <p id="ai-provider-line" class="muted"></p>
-            <input id="ai-goal" type="text" placeholder="Goal (optional), e.g. remove the candles" />
-            <button id="ai-run" class="primary">Ask AI to identify objects</button>
-            <button id="make-open" title="Describe an object (and add pictures) – the AI designs it as a solid you can print">✨ Make a new object…</button>
-            <p id="ai-summary" class="muted"></p>
-            <button id="ai-select-remove" hidden>Select everything the AI suggests removing</button>
           </div>
         </div>
       </div>

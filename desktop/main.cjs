@@ -1,14 +1,13 @@
 // STL Mesh Editor – Windows (desktop) app.
 //
-// The built web app (app/) is served from a small local web server, together
-// with the optional AI endpoint (server/ai.js), and shown in its own window.
+// The built web app (app/) is served from a small local web server and shown
+// in its own window.
 // Nothing is installed: the portable .exe unpacks to a temp folder and runs.
 
 const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
 
 // Without a usable graphics card (virtual machines, blocked drivers) fall back
 // to software WebGL instead of failing to show the 3D view.
@@ -26,22 +25,6 @@ const TYPES = {
   '.wasm': 'application/wasm',
 };
 
-// The Anthropic API key for "Ask AI" (optional): ANTHROPIC_API_KEY in the
-// environment, or a .env file next to the .exe (or in the app's data folder)
-// with a line ANTHROPIC_API_KEY=sk-ant-...
-function apiKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  const dirs = [process.env.PORTABLE_EXECUTABLE_DIR, path.dirname(process.execPath), app.getPath('userData')].filter(Boolean);
-  for (const dir of dirs) {
-    try {
-      const text = fs.readFileSync(path.join(dir, '.env'), 'utf8');
-      const m = text.match(/^\s*ANTHROPIC_API_KEY\s*=\s*["']?([^"'\s]+)/m);
-      if (m) return m[1];
-    } catch {}
-  }
-  return undefined;
-}
-
 // Files to open (double-clicked .stl files), served once by token.
 const openFiles = new Map();
 let pendingFiles = [];
@@ -56,19 +39,6 @@ function serve(req, res) {
     }
     res.setHeader('Content-Type', 'application/octet-stream');
     fs.createReadStream(file).on('error', () => res.end()).pipe(res);
-    return;
-  }
-  if (url.pathname.startsWith('/api/ai/')) {
-    import(pathToFileURL(path.join(__dirname, 'server', 'ai.js')).href)
-      .then(({ aiMiddleware }) => aiMiddleware(apiKey, { settingsFile: path.join(app.getPath('userData'), 'ai-settings.json') })(req, res, () => {
-        res.statusCode = 404;
-        res.end();
-      }))
-      .catch((err) => {
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'AI support failed to load: ' + err.message }));
-      });
     return;
   }
   const file = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
@@ -178,16 +148,6 @@ Menu.setApplicationMenu(
         {
           label: 'About STL Mesh Editor',
           click: () => mainWindow?.webContents.executeJavaScript('window.showAbout && window.showAbout()'),
-        },
-        {
-          label: 'Ask AI setup…',
-          click: () =>
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'Ask AI',
-              message: 'To use "Ask AI", put a file named .env next to the .exe containing:',
-              detail: 'ANTHROPIC_API_KEY=sk-ant-...\n\nThen restart the app. Everything else works without it.',
-            }),
         },
       ],
     },

@@ -3,7 +3,7 @@
   "productName": "STL Mesh Editor",
   "version": "1.0.1",
   "private": true,
-  "description": "STL Mesh Editor \u2013 open, repair, cut and export STL files",
+  "description": "STL Mesh Editor – open, repair, cut and export STL files",
   "main": "main.cjs",
   "scripts": {
     "prepare-app": "node prepare.mjs",
@@ -13,10 +13,6 @@
     "dist:mac": "node prepare.mjs && electron-builder --mac dmg --universal --publish never",
     "dist:linux": "node prepare.mjs && electron-builder --linux AppImage deb --x64 --arm64 --publish never",
     "dist:linux-host": "node prepare.mjs && electron-builder --win portable --x64 --publish never -c.win.signAndEditExecutable=false"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0",
-    "zod": "^4.6.5"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -32,7 +28,6 @@
       "main.cjs",
       "icon.png",
       "app/**/*",
-      "server/**/*",
       "package.json"
     ],
     "win": {
