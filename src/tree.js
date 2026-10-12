@@ -443,46 +443,60 @@ export function buildTree(wasm, options = {}) {
       made.push(s);
       parts.push(s);
     }
-    // Leaves: small, thick-enough leaf blades in sprays on the twigs.
+    // Leaves: fern-like fronds on the twigs – a thin, arching stem with pairs
+    // of small leaflets, largest at the base, smaller towards the tip.
     if (o.leaves && o.leaves !== 'none') {
       const rand = rng(o.seed + 99);
-      const size = +o.leafSize || Math.max(3, tree.H * 0.05);
-      const thick = Math.max(0.8, size * 0.08);
-      const perTip = o.leaves === 'crown' ? 9 : 6;
-      const leaf = solidOf(leafMesh(1, 0.4, thick / size, { rows: o.detail === 'draft' ? 6 : o.detail === 'fine' ? 12 : 8, around: o.detail === 'draft' ? 6 : o.detail === 'fine' ? 10 : 8 }));
-      if (!leaf) throw new Error('leaf');
-      const tips = tree.tips.slice(0, 700);
-      for (const tip of tips) {
-        // A spray: pairs of leaves along the last part of the twig, angled
-        // forwards, the last one at the tip – like a fern or an acacia.
-        const pts = tip.pts, n = pts.length - 1;
-        // About 2,400 leaves at most: with many twigs, smaller sprays.
-        const pairs = Math.max(1, Math.min(o.leaves === 'crown' ? 5 : 4, Math.floor((o.leaves === 'crown' ? 3200 : 2400) / (2 * tips.length + 1))));
-        const up = [0, 0, 1];
-        for (let j = 0; j <= pairs; j++) {
-          const t = 0.35 + 0.65 * (j / pairs);
-          const fi = t * n, i0 = Math.min(n - 1, Math.floor(fi));
-          const at = add(pts[i0], mul(sub(pts[i0 + 1], pts[i0]), fi - i0));
-          const d = norm(sub(pts[i0 + 1], pts[i0]));
-          // "Flat" side of the spray: across the twig, as level as it gets.
-          let across = cross(d, up);
-          if (len(across) < 0.2) across = anyPerp(d);
-          across = norm(across);
-          const sides = j === pairs ? [0] : [1, -1];
-          for (const side of sides) {
-            const s = size * (0.8 + rand() * 0.35) * (j === pairs ? 1.1 : 1);
-            const ang = side === 0 ? 0 : (55 + rand() * 15) * (Math.PI / 180);
-            const out = norm(add(mul(d, Math.cos(ang)), mul(across, side * Math.sin(ang))));
-            // Its stalk end sits in the twig.
-            const centre = add(at, mul(out, -Math.min(0.6, s * 0.08)));
-            const x = out;
-            let z = norm(cross(out, across));
-            if (z[2] < 0) z = mul(z, -1);
-            const y = cross(z, x);
-            const mat = [...mul(x, s), 0, ...mul(y, s), 0, ...mul(z, s), 0, ...centre, 1];
-            const blade = leaf.transform(mat);
-            made.push(blade);
-            parts.push(blade);
+      const frond = +o.leafSize || tree.H * 0.12; // frond length, mm
+      const thick = Math.max(0.6, frond * 0.04); // leaflets stay printable
+      const res = o.detail === 'draft' ? [4, 5] : o.detail === 'fine' ? [7, 8] : [5, 6];
+      // A leaflet of length 1, width 0.42 and thickness 1 (scaled per use).
+      const leaflet = solidOf(leafMesh(1, 0.42, 1, { rows: res[0], around: res[1] }));
+      if (!leaflet) throw new Error('leaf');
+      // Not every twig needs a frond on a big tree: at most ~450 (~700 dense).
+      const dense = o.leaves === 'crown';
+      const limit = dense ? 700 : 450;
+      const all = tree.tips;
+      const every = Math.max(1, all.length / limit);
+      const pairs = dense ? 10 : 9;
+      const up = [0, 0, 1];
+      for (let f = 0; f < all.length; f += every) {
+        const tip = all[Math.floor(f)];
+        for (let copy = 0; copy < (dense ? 2 : 1); copy++) {
+          // The frond grows on from the twig, spreading outwards and a little
+          // down, its leaflets lying roughly level.
+          let d = tip.d;
+          if (copy) d = norm(rotate(d, anyPerp(d), 0.7 + rand() * 0.3));
+          let fd = norm([d[0], d[1], d[2] * 0.35 - 0.1]);
+          if (Math.hypot(fd[0], fd[1]) < 0.2) fd = norm(add(fd, mul(anyPerp(fd), 0.8)));
+          const L = frond * (0.8 + rand() * 0.35);
+          let across = cross(fd, up);
+          across = len(across) < 0.2 ? anyPerp(fd) : norm(across);
+          const lift = norm(cross(across, fd)); // the frond's "up"
+          const at = (t) => add(add(tip.p, mul(fd, t * L)), mul(lift, L * (0.1 * Math.sin(Math.PI * t) - 0.18 * t * t)));
+          // The stem (rachis): a thin tube along the arch.
+          const stem = { pts: [0, 0.25, 0.5, 0.75, 1].map(at), radii: [0.55, 0.47, 0.4, 0.33, 0.25].map((k) => Math.max(0.3, thick * k)), level: 9 };
+          const sm = solidOf(tubeMesh(stem, { bark: 0, noise, edge: Math.max(0.4, edge) }));
+          if (sm) parts.push(sm);
+          // Leaflets in pairs along the stem, and one at the end.
+          for (let j = 0; j <= pairs; j++) {
+            const t = j === pairs ? 1 : 0.12 + 0.84 * (j / pairs);
+            const p0 = at(t), p1 = at(Math.min(1, t + 0.02));
+            const sd = norm(sub(p1, p0));
+            const sideAcross = norm(cross(sd, lift));
+            const size = L * (j === pairs ? 0.2 : 0.3 * (1 - 0.6 * t)) * (0.9 + rand() * 0.2);
+            for (const side of j === pairs ? [0] : [1, -1]) {
+              const ang = side ? (58 + rand() * 10) * (Math.PI / 180) : 0;
+              const out = norm(add(add(mul(sd, Math.cos(ang)), mul(sideAcross, side * Math.sin(ang))), mul(lift, side ? 0.12 : 0)));
+              const z = norm(cross(out, side ? sideAcross : sideAcross));
+              const zz = dot(z, lift) < 0 ? mul(z, -1) : z;
+              const y = cross(zz, out);
+              const base = add(p0, mul(out, -Math.min(0.4, size * 0.08)));
+              const mat = [...mul(out, size), 0, ...mul(y, size), 0, ...mul(zz, thick), 0, ...base, 1];
+              const blade = leaflet.transform(mat);
+              made.push(blade);
+              parts.push(blade);
+            }
           }
         }
       }
