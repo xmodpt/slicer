@@ -3,7 +3,13 @@
 A browser app to open STL files, delete parts of the mesh, and close the model
 again so it's watertight.
 
-**Version 1.0.1**
+**Version 1.1.0**
+
+What's new in 1.1:
+- Mouse: left-drag turns the model around (left/right only, like a
+  turntable); right-drag rotates freely.
+- The AI features were removed – the app works fully offline and never
+  contacts an outside service.
 
 ## Desktop apps – Windows, macOS, Linux
 
@@ -29,7 +35,7 @@ start shows a warning:
 
 **Building them:** the workflow `.github/workflows/desktop-apps.yml` builds
 all of them on GitHub's Windows, macOS and Linux machines. On GitHub:
-*Releases → Draft a new release* → *Choose a tag*: type e.g. `v1.0.1` (on the
+*Releases → Draft a new release* → *Choose a tag*: type e.g. `v1.1.0` (on the
 branch with this code) → *Publish release*. After about 10 minutes the files
 appear under the release's *Assets*. To build one yourself (Node.js 20+, on
 that system):

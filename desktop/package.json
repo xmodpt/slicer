@@ -1,7 +1,7 @@
 {
   "name": "stl-mesh-editor-desktop",
   "productName": "STL Mesh Editor",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "STL Mesh Editor – open, repair, cut and export STL files",
   "main": "main.cjs",
