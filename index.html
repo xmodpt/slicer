@@ -63,10 +63,10 @@
       <div class="brand" id="brand" title="About STL Mesh Editor" role="button" tabindex="0"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" /></svg>STL Mesh Editor <span id="app-version" class="version"></span></div>
 
       <div class="tb-group">
-        <label class="tb-btn" for="file-input" title="Open an STL file (or drop one anywhere)">
+        <label class="tb-btn" for="file-input" title="Open an STL, 3MF or OBJ file (or drop one anywhere)">
           <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>Open
         </label>
-        <input id="file-input" type="file" accept=".stl" hidden />
+        <input id="file-input" type="file" accept=".stl,.3mf,.obj" hidden />
         <button class="tb-btn" id="sample" title="Load a sample model (cake with candles)">
           <svg viewBox="0 0 24 24"><path d="M4 11h16v9H4zM8 11V6M12 11V4M16 11V6" /></svg>Sample
         </button>
@@ -79,6 +79,8 @@
             <button id="export" disabled>Export whole model</button>
             <button id="export-zip" disabled>Download all parts (.zip)</button>
             <button id="export-each" disabled>Download each part as its own STL</button>
+            <button id="export-3mf" disabled title="One 3MF file with every model kept separate – for Bambu Studio, PrusaSlicer, Orca, Chitubox, Lychee">Save as 3MF</button>
+            <button id="export-obj" disabled>Save as OBJ</button>
           </div>
         </div>
       </div>

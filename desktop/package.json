@@ -48,6 +48,18 @@
         "name": "STL model",
         "description": "3D model (STL)",
         "role": "Editor"
+      },
+      {
+        "ext": "3mf",
+        "name": "3MF model",
+        "description": "3D model (3MF)",
+        "role": "Editor"
+      },
+      {
+        "ext": "obj",
+        "name": "OBJ model",
+        "description": "3D model (OBJ)",
+        "role": "Editor"
       }
     ],
     "nsis": {

@@ -74,6 +74,24 @@ other computer – `localhost` only works on the Pi itself.
 - To keep it running after you log out, use e.g. `pm2` or a systemd service
   running `npm start` in this folder.
 
+## Printer
+
+The **printer button** in the top bar (it shows the chosen printer) opens
+the profiles: resin printers from Anycubic, Elegoo, Phrozen, Creality and
+Uniformation with their build volumes – or *No printer* for a plain grid.
+**Copy** a profile or fill in the form to save your own (stored in the
+browser). The chosen printer's build plate is drawn in the view (print area
+with a 10 mm grid, the build height as a dashed box, the printer body below,
+as slicers show it); **View ▾ → Plate** shows the whole printer. The status
+bar says whether the model fits; the print area turns red when it doesn't.
+
+## Files
+
+Opens **STL, 3MF and OBJ** (open button or drag and drop). A 3MF or OBJ with
+several objects opens as several models. **Export ▾** saves STL (whole, per
+model or as a zip), **3MF** (one file, every model kept separate – for Bambu
+Studio, PrusaSlicer, Orca, Chitubox, Lychee) and **OBJ**.
+
 ## Modes
 
 The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):

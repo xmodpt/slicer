@@ -67,7 +67,7 @@ function startServer() {
 let mainWindow = null;
 let pageReady = false;
 
-const stlArgs = (argv) => argv.slice(1).filter((a) => /\.stl$/i.test(a) && fs.existsSync(a));
+const stlArgs = (argv) => argv.slice(1).filter((a) => /\.(stl|3mf|obj)$/i.test(a) && fs.existsSync(a));
 
 // Opens an .stl file in the window (once the page has started).
 function openPath(file) {

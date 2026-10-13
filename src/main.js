@@ -9,6 +9,7 @@ import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
+import { parseOBJ, writeOBJ, read3MF, write3MF } from './formats.js';
 import { allPrinters, selectedPrinter, selectPrinter, saveCustomPrinter, deleteCustomPrinter, fitCheck } from './printers.js';
 
 const $ = (id) => document.getElementById(id);
@@ -130,8 +131,33 @@ function openFile(file) {
     await stage('Reading file…', 0);
     const buffer = await readFile(file, (f) => setProgress('Reading file…', f * 0.25));
     await stage('Reading triangles…', 0.27);
+    const ext = (file.name.match(/\.(\w+)$/)?.[1] || '').toLowerCase();
+    if (ext === '3mf') return loadModels(await read3MF(buffer), file.name);
+    if (ext === 'obj') return loadModels(parseOBJ(new TextDecoder().decode(buffer)), file.name);
     await loadSoup(parseSTL(buffer), file.name);
   });
+}
+
+// Several models from one file (3MF, OBJ): one mesh, each model its own group.
+async function loadModels(models, name) {
+  if (!models.length) throw new Error('The file contains no triangles.');
+  const total = models.reduce((n, m) => n + m.soup.length, 0);
+  const soup = new Float32Array(total);
+  let o = 0;
+  const ranges = [];
+  for (const m of models) {
+    soup.set(m.soup, o);
+    ranges.push([o / 9, (o + m.soup.length) / 9, m.name]);
+    o += m.soup.length;
+  }
+  await loadSoup(soup, name);
+  if (models.length < 2 || state.mesh.triangleCount !== total / 9) return;
+  const groups = new Int32Array(state.mesh.triangleCount);
+  ranges.forEach(([a, b, n], k) => groups.fill(k === 0 ? 0 : newGroupId(n), a, b));
+  state.groupNames.set(0, ranges[0][2]);
+  state.faceGroup = groups;
+  renderObjectList();
+  updateExportLabels();
 }
 
 // The desktop app opens .stl files double-clicked in Explorer / Finder / a
@@ -205,6 +231,26 @@ function exportableGroups() {
   });
 }
 
+// The models (or the selected ones) for 3MF / OBJ.
+function exportModels() {
+  let groups = listGroups();
+  if (exportSelectedOnly()) groups = groups.filter((g) => g.parts.some((p) => p.faces.some((t) => state.selection[t])));
+  return groups.map((g) => {
+    const m = state.mesh.extractFaceList(g.faces());
+    return { name: g.name, positions: m.positions, indices: m.indices };
+  });
+}
+$('export-3mf').addEventListener('click', () => {
+  const models = exportModels();
+  if (!models.length) return toast('Select something to export first');
+  download(write3MF(models), baseName() + '.3mf', 'model/3mf');
+});
+$('export-obj').addEventListener('click', () => {
+  const models = exportModels();
+  if (!models.length) return toast('Select something to export first');
+  download(writeOBJ(models), baseName() + '.obj', 'model/obj');
+});
+
 $('export-zip').addEventListener('click', () => {
   const files = exportableGroups();
   if (files.length) download(makeZip(files), baseName() + (exportSelectedOnly() ? '_selected_models.zip' : '_models.zip'), 'application/zip');
@@ -227,7 +273,7 @@ function updateExportLabels() {
   const only = exportSelectedOnly();
   const selected = only && state.mesh ? groups.filter((g) => g.parts.some((p) => p.faces.some((t) => state.selection[t]))).length : groups.length;
   $('export').textContent = only ? 'Export selection as one STL' : groups.length > 1 ? 'Export everything as one STL' : 'Export model';
-  $('export-zip').disabled = $('export-each').disabled = selected < 1;
+  $('export-zip').disabled = $('export-each').disabled = $('export-3mf').disabled = $('export-obj').disabled = selected < 1;
   $('export-zip').textContent = only
     ? `Download ${selected} selected model${selected === 1 ? '' : 's'} (.zip)`
     : `Download ${groups.length > 1 ? `all ${groups.length} models` : 'the model'} (.zip)`;
@@ -248,7 +294,7 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   document.body.classList.remove('dragging');
-  const file = [...e.dataTransfer.files].find((f) => /\.stl$/i.test(f.name)) || e.dataTransfer.files[0];
+  const file = [...e.dataTransfer.files].find((f) => /\.(stl|3mf|obj)$/i.test(f.name)) || e.dataTransfer.files[0];
   if (file) openFile(file);
 });
 
@@ -851,7 +897,7 @@ function isOpen(key, fallback) {
 }
 
 function modelName() {
-  return state.modelName || state.fileName.replace(/\.stl$/i, '');
+  return state.modelName || state.fileName.replace(/\.(stl|3mf|obj)$/i, '');
 }
 
 function partName(i) {
