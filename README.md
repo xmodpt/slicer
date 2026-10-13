@@ -92,6 +92,39 @@ several objects opens as several models. **Export ▾** saves STL (whole, per
 model or as a zip), **3MF** (one file, every model kept separate – for Bambu
 Studio, PrusaSlicer, Orca, Chitubox, Lychee) and **OBJ**.
 
+## Tools ▾
+
+**Check**
+- **Model info** – size, volume, surface, resin in ml, weight and cost
+  (density and price per kg are editable) for the selected models or all.
+- **Repair** – finds and fixes faces turned the wrong way (also whole
+  inside-out models), duplicate, zero-size and paper-thin double-wall
+  triangles; finds faces passing through other faces (and selects them).
+- **Wall thickness** – colours the model: red thinner than the minimum,
+  orange close to it, green fine; *Select the thin areas*.
+- **Overhangs & auto-orient** – red faces need supports at the chosen angle;
+  *Auto-orient* turns the model (or the selected ones) so the least area
+  overhangs (ties: the lower one).
+- **Measure** – click two points for the distance (and X·Y·Z), a third for
+  the angle.
+
+**Change** (solid operations with manifold-3d – results are always closed;
+the input must be closed too)
+- **Hollow & drain holes** – a shell with walls of the chosen thickness (the
+  inside follows the outside at an even distance), then click where drain
+  holes go and *Drill holes*. Shows the resin saved.
+- **Text / logo** – type text (4 fonts) or load an SVG logo, click on the
+  model, *Add it* raised or engraved, any height, depth and turn.
+- **Add a base** – round, oval or rectangular plinth with a bevel under the
+  selected models (or all), joined to them or as a separate model.
+- **Combine models** – select two or more: join into one, cut the others out
+  of one of them, or keep only the overlap.
+- **Mirror** – X, Y or Z, across the model's centre.
+- **Smooth** – Taubin smoothing (doesn't shrink); in Edit mode only the
+  selected faces, with the edge of the area kept in place.
+
+Everything is one undo step (Ctrl+Z).
+
 ## Modes
 
 The switch in the top bar (or `1` / `2` / `3`, `Tab` toggles Normal ↔ Edit):
@@ -334,5 +367,10 @@ holes, parts and whether the mesh is watertight.
   hits what you can see).
 - `src/main.js` – UI, tools, undo/redo.
 - `src/floating.js` – finds parts floating in mid-air.
+- `src/printers.js` – resin printer profiles and the fit check.
+- `src/formats.js` – OBJ and 3MF reading and writing (with a small zip reader).
+- `src/analysis.js` – model info, overhangs and auto-orient, wall thickness.
+- `src/repair.js` – repair, self-crossings, mirror, smooth.
+- `src/csg.js` – join/cut/overlap, base, text and logos, hollowing, drain holes.
 - `desktop/` – the Windows app (Electron): `main.cjs` serves the built app
   from a local web server in its own window.

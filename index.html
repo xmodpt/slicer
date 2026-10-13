@@ -429,6 +429,57 @@
             <button id="sm-run" class="primary">Smooth</button>
           </div>
 
+          <div class="card-body" data-card="combine">
+            <p class="hint">Select two or more models (Shift-click), then:</p>
+            <p id="cb-info" class="hint"></p>
+            <button id="cb-join" class="primary" title="One solid made of all of them – overlaps merge cleanly">Join into one</button>
+            <label class="field">Cut the others out of <select id="cb-keep"></select></label>
+            <button id="cb-cut" title="Cut the shape of the other models out of this one (holes, slots, sockets)">Cut</button>
+            <button id="cb-overlap" title="Keep only where they all overlap">Keep only the overlap</button>
+          </div>
+
+          <div class="card-body" data-card="base">
+            <p class="hint">A plinth under the selected models (or everything), set onto it.</p>
+            <label class="field">Shape <select id="bs-shape"><option value="round">Round</option><option value="oval">Oval</option><option value="square">Rectangle</option></select></label>
+            <label class="field">Margin <input id="bs-margin" type="number" min="0" step="0.5" value="4" /> mm</label>
+            <label class="field">Height <input id="bs-height" type="number" min="0.6" step="0.5" value="3" /> mm</label>
+            <label class="field">Bevel <input id="bs-bevel" type="number" min="0" step="0.1" value="0.8" /> mm</label>
+            <label class="check"><input id="bs-join" type="checkbox" checked /> Join the model to the base (one piece)</label>
+            <button id="bs-add" class="primary">Add base</button>
+          </div>
+
+          <div class="card-body" data-card="text">
+            <label class="field">Text <input id="tx-text" type="text" value="Hello" /></label>
+            <label class="field">Font <select id="tx-font">
+              <option value="helvetiker_bold">Helvetiker bold</option>
+              <option value="helvetiker_regular">Helvetiker</option>
+              <option value="optimer_bold">Optimer bold</option>
+              <option value="gentilis_bold">Gentilis bold</option>
+            </select></label>
+            <label class="field">…or a logo <input id="tx-svg" type="file" accept=".svg,image/svg+xml" /></label>
+            <p id="tx-logo" class="hint" hidden></p>
+            <label class="field"><span id="tx-size-label">Letter height</span> <input id="tx-size" type="number" min="1" step="0.5" value="6" /> mm</label>
+            <label class="field">Depth <input id="tx-depth" type="number" min="0.2" step="0.1" value="1" /> mm</label>
+            <label class="field">Turn <input id="tx-angle" type="number" step="5" value="0" /> °</label>
+            <div class="seg"><button data-txmode="raise" class="active">Raised</button><button data-txmode="engrave">Engraved</button></div>
+            <p id="tx-hint" class="hint">Click on the model where it should go.</p>
+            <button id="tx-apply" class="primary" disabled>Add it</button>
+          </div>
+
+          <div class="card-body" data-card="hollow">
+            <p class="hint">Resin: a hollow model uses far less resin. Hollow it, then add drain holes near the bottom so resin can run out and air can get in (two holes are best).</p>
+            <label class="field">Wall <input id="hl-wall" type="number" min="0.8" step="0.1" value="2" /> mm</label>
+            <button id="hl-run" class="primary">Hollow the selected models (or everything)</button>
+            <p id="hl-info" class="hint"></p>
+            <div class="sub-head">Drain holes</div>
+            <label class="field">Diameter <input id="hl-dia" type="number" min="0.5" step="0.5" value="3" /> mm</label>
+            <p id="hl-holes" class="hint">Click on the model where each hole goes.</p>
+            <div class="row">
+              <button id="hl-drill" class="primary" disabled>Drill holes</button>
+              <button id="hl-clear" disabled>Clear</button>
+            </div>
+          </div>
+
           <div class="card-body" data-card="orbit">
             <p class="hint">Left-drag rotates the view, right-drag pans, wheel zooms.</p>
           </div>

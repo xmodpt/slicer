@@ -11,6 +11,7 @@ import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
 import { modelInfo, resinUse, overhangs, bestOrientation, wallThickness } from './analysis.js';
 import { diagnose, repair, selfIntersections, mirror, smooth } from './repair.js';
+import { combine, addBase, textOutlines, svgOutlines, stamp, hollow, drillHoles } from './csg.js';
 import { parseOBJ, writeOBJ, read3MF, write3MF } from './formats.js';
 import { allPrinters, selectedPrinter, selectPrinter, saveCustomPrinter, deleteCustomPrinter, fitCheck } from './printers.js';
 
@@ -2074,6 +2075,262 @@ $('sm-run').addEventListener('click', () =>
     });
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Solid operations (csg.js, manifold-3d – loaded when first needed).
+
+let manifoldWasm = null;
+async function manifoldModule() {
+  if (!manifoldWasm) {
+    const [{ default: Module }, { default: wasmUrl }] = await Promise.all([import('manifold-3d'), import('manifold-3d/manifold.wasm?url')]);
+    const wasm = await Module({ locateFile: () => wasmUrl });
+    wasm.setup();
+    manifoldWasm = wasm;
+  }
+  return manifoldWasm;
+}
+
+// The models a tool works on: the selected ones, else all. [{ id, name, faces }]
+function targetGroups() {
+  const all = listGroups();
+  if (!countSelected()) return all;
+  return all.filter((g) => g.parts.some((p) => p.faces.some((t) => state.selection[t])));
+}
+const meshOfGroup = (g) => {
+  const m = state.mesh.extractFaceList(g.faces());
+  return { positions: m.positions, indices: m.indices };
+};
+
+// Replace models: drops the faces of `groups` (ids) and adds `meshes`
+// ([{ positions, indices, name }]) as models of their own. One undo step.
+function replaceModels(groups, meshes, message) {
+  const drop = new Set(groups);
+  const keepGroups = [];
+  edit((mesh) => {
+    const P = mesh.positions, I = mesh.indices;
+    const keep = [];
+    for (let t = 0; t < mesh.triangleCount; t++) if (!drop.has(state.faceGroup[t])) keep.push(t);
+    for (const t of keep) keepGroups.push(state.faceGroup[t]);
+    const nv = P.length / 3 + meshes.reduce((n, m) => n + m.positions.length / 3, 0);
+    const pos = new Float32Array(nv * 3);
+    pos.set(P);
+    const idx = new Uint32Array(keep.length * 3 + meshes.reduce((n, m) => n + m.indices.length, 0));
+    keep.forEach((t, i) => idx.set(I.subarray(t * 3, t * 3 + 3), i * 3));
+    let vo = P.length / 3, io = keep.length * 3;
+    for (const m of meshes) {
+      pos.set(m.positions, vo * 3);
+      for (let i = 0; i < m.indices.length; i++) idx[io + i] = m.indices[i] + vo;
+      vo += m.positions.length / 3;
+      io += m.indices.length;
+    }
+    mesh._set(pos, idx);
+    // Unused vertices of the dropped faces go away.
+    mesh.deleteFaces(new Uint8Array(mesh.triangleCount));
+    return message;
+  });
+  const next = new Int32Array(state.mesh.triangleCount);
+  next.set(keepGroups);
+  let o = keepGroups.length;
+  for (const m of meshes) {
+    next.fill(newGroupId(m.name), o, o + m.indices.length / 3);
+    o += m.indices.length / 3;
+  }
+  state.faceGroup = next;
+  state.selection = new Uint8Array(state.mesh.triangleCount);
+  viewer.setSelection(state.selection);
+  renderObjectList();
+  updateExportLabels();
+  refreshPanel();
+}
+
+function solidTask(label, fn) {
+  return busy(async () => {
+    await stage(label, null);
+    const wasm = await manifoldModule();
+    await new Promise((r) => setTimeout(r, 20)); // let the label show
+    try {
+      await fn(wasm);
+    } catch (err) {
+      toast(err.message || String(err));
+    }
+  });
+}
+
+// Combine.
+PANELS.combine = {
+  open: () => PANELS.combine.refresh(),
+  refresh() {
+    const groups = countSelected() ? targetGroups() : [];
+    $('cb-info').textContent = groups.length >= 2 ? `${groups.length} models selected: ${groups.map((g) => g.name).join(', ')}.` : 'Select at least two models (click, Shift-click).';
+    const sel = $('cb-keep');
+    sel.innerHTML = '';
+    for (const g of groups) sel.add(new Option(g.name, g.id));
+    for (const id of ['cb-join', 'cb-cut', 'cb-overlap']) $(id).disabled = groups.length < 2;
+  },
+};
+const doCombine = (op) => {
+  const groups = targetGroups();
+  if (groups.length < 2) return;
+  let ordered = groups;
+  if (op === 'cut') {
+    const keepId = +$('cb-keep').value;
+    ordered = [groups.find((g) => g.id === keepId), ...groups.filter((g) => g.id !== keepId)];
+  }
+  solidTask('Combining…', (wasm) => {
+    const r = combine(wasm, ordered.map(meshOfGroup), op);
+    const name = op === 'join' ? ordered.map((g) => g.name).join(' + ') : op === 'cut' ? `${ordered[0].name} (cut)` : 'Overlap';
+    replaceModels(ordered.map((g) => g.id), [{ ...r, name }], { join: 'Joined into one model', cut: 'Cut out', overlap: 'Kept the overlap' }[op]);
+  });
+};
+$('cb-join').addEventListener('click', () => doCombine('join'));
+$('cb-cut').addEventListener('click', () => doCombine('cut'));
+$('cb-overlap').addEventListener('click', () => doCombine('overlap'));
+
+// Base.
+PANELS.base = { open() {} };
+$('bs-add').addEventListener('click', () => {
+  const groups = targetGroups();
+  if (!groups.length) return;
+  const opts = { shape: $('bs-shape').value, margin: +$('bs-margin').value || 0, height: Math.max(0.6, +$('bs-height').value || 3), bevel: Math.max(0, +$('bs-bevel').value || 0), join: $('bs-join').checked };
+  solidTask('Adding the base…', (wasm) => {
+    // All target models on one base: joined first when there are several.
+    const model = groups.length > 1 ? combine(wasm, groups.map(meshOfGroup), 'join') : meshOfGroup(groups[0]);
+    const name = groups.map((g) => g.name).join(' + ');
+    const r = addBase(wasm, model, opts);
+    const meshes = opts.join ? [{ ...r.mesh, name: `${name} on base` }] : [{ ...r.model, name }, { ...r.base, name: 'Base' }];
+    replaceModels(groups.map((g) => g.id), meshes, 'Base added');
+  });
+});
+
+// Text / logo.
+state.txMode = 'raise';
+for (const b of document.querySelectorAll('[data-txmode]')) {
+  b.addEventListener('click', () => {
+    state.txMode = b.dataset.txmode;
+    for (const o of document.querySelectorAll('[data-txmode]')) o.classList.toggle('active', o === b);
+  });
+}
+const fonts = {};
+async function loadFont(name) {
+  if (!fonts[name]) {
+    const [{ Font }, json] = await Promise.all([
+      import('three/examples/jsm/loaders/FontLoader.js'),
+      {
+        helvetiker_bold: () => import('three/examples/fonts/helvetiker_bold.typeface.json'),
+        helvetiker_regular: () => import('three/examples/fonts/helvetiker_regular.typeface.json'),
+        optimer_bold: () => import('three/examples/fonts/optimer_bold.typeface.json'),
+        gentilis_bold: () => import('three/examples/fonts/gentilis_bold.typeface.json'),
+      }[name](),
+    ]);
+    fonts[name] = new Font(json.default || json);
+  }
+  return fonts[name];
+}
+PANELS.text = {
+  open() {
+    state.pickMode = 'text';
+    state.txSpot = null;
+    $('tx-apply').disabled = true;
+    $('tx-hint').textContent = 'Click on the model where it should go.';
+  },
+  click(point, face) {
+    if (face < 0) return;
+    const n = new THREE.Vector3(...state.mesh.faceNormals().slice(face * 3, face * 3 + 3));
+    state.txSpot = { point, normal: n.toArray(), group: state.faceGroup[face] };
+    viewer.setMarkers([point], { lines: false });
+    $('tx-apply').disabled = false;
+    $('tx-hint').textContent = `On ${groupName(state.txSpot.group)} – press “Add it”, or click elsewhere to move it.`;
+  },
+};
+$('tx-svg').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  state.txSvg = f ? await f.text() : null;
+  $('tx-logo').hidden = !f;
+  $('tx-logo').textContent = f ? `Logo: ${f.name} (clear the file to use text)` : '';
+  $('tx-size-label').textContent = f ? 'Logo width' : 'Letter height';
+});
+for (const id of ['tx-text', 'tx-size', 'tx-depth', 'tx-angle']) $(id).addEventListener('keydown', (e) => e.stopPropagation());
+$('tx-apply').addEventListener('click', () => {
+  const spot = state.txSpot;
+  if (!spot) return;
+  const g = listGroups().find((x) => x.id === spot.group);
+  if (!g) return;
+  solidTask(state.txSvg ? 'Adding the logo…' : 'Adding the text…', async (wasm) => {
+    const size = Math.max(0.5, +$('tx-size').value || 6);
+    let polys;
+    if (state.txSvg) {
+      const { SVGLoader } = await import('three/examples/jsm/loaders/SVGLoader.js');
+      polys = svgOutlines(SVGLoader, state.txSvg, size);
+    } else {
+      const text = $('tx-text').value.trim();
+      if (!text) throw new Error('Type the text first.');
+      polys = textOutlines(await loadFont($('tx-font').value), text, size);
+    }
+    const r = stamp(wasm, meshOfGroup(g), polys, { point: spot.point, normal: spot.normal, depth: Math.max(0.1, +$('tx-depth').value || 1), mode: state.txMode, angle: +$('tx-angle').value || 0 });
+    replaceModels([g.id], [{ ...r, name: g.name }], state.txMode === 'raise' ? 'Added – Ctrl+Z to undo' : 'Engraved – Ctrl+Z to undo');
+    state.txSpot = null;
+    viewer.setMarkers(null);
+    $('tx-apply').disabled = true;
+    $('tx-hint').textContent = 'Done. Click on the model to add another.';
+  });
+});
+
+// Hollow & drain holes.
+PANELS.hollow = {
+  open() {
+    state.pickMode = 'hollow';
+    PANELS.hollow.show();
+  },
+  show() {
+    const n = state.drains?.length || 0;
+    viewer.setMarkers((state.drains || []).map((h) => h.point), { lines: false, color: 0x5cc8ff });
+    $('hl-holes').textContent = n ? `${n} hole${n > 1 ? 's' : ''} placed – click to add more, then “Drill holes”.` : 'Click on the model where each hole goes (near the bottom, on the side facing the plate).';
+    $('hl-drill').disabled = $('hl-clear').disabled = !n;
+  },
+  click(point, face) {
+    if (face < 0) return;
+    const n = state.mesh.faceNormals().slice(face * 3, face * 3 + 3);
+    state.drains = [...(state.drains || []), { point, normal: [...n], group: state.faceGroup[face] }];
+    PANELS.hollow.show();
+  },
+};
+$('hl-clear').addEventListener('click', () => {
+  state.drains = [];
+  PANELS.hollow.show();
+});
+for (const id of ['hl-wall', 'hl-dia']) $(id).addEventListener('keydown', (e) => e.stopPropagation());
+$('hl-run').addEventListener('click', () => {
+  const groups = targetGroups();
+  const wall = Math.max(0.5, +$('hl-wall').value || 2);
+  solidTask('Hollowing – this can take a little while…', (wasm) => {
+    const out = [];
+    let before = 0, after = 0;
+    for (const g of groups) {
+      const m = meshOfGroup(g);
+      const r = hollow(wasm, m, { wall });
+      before += modelInfo(state.mesh, g.faces()).volume;
+      after += modelInfo({ positions: r.mesh.positions, indices: r.mesh.indices, triangleCount: r.mesh.indices.length / 3 }).volume;
+      out.push({ ...r.mesh, name: g.name });
+    }
+    replaceModels(groups.map((g) => g.id), out, `Hollowed with ${wall} mm walls`);
+    $('hl-info').textContent = `Resin ${(before / 1000).toFixed(1)} → ${(after / 1000).toFixed(1)} ml (−${Math.round((1 - after / before) * 100)} %). Now add drain holes.`;
+  });
+});
+$('hl-drill').addEventListener('click', () => {
+  const drains = state.drains || [];
+  if (!drains.length) return;
+  const dia = Math.max(0.5, +$('hl-dia').value || 3);
+  const depth = Math.max(4, (+$('hl-wall').value || 2) * 3);
+  solidTask('Drilling…', (wasm) => {
+    const byGroup = new Map();
+    for (const h of drains) byGroup.set(h.group, [...(byGroup.get(h.group) || []), h]);
+    const groups = listGroups().filter((g) => byGroup.has(g.id));
+    const out = groups.map((g) => ({ ...drillHoles(wasm, meshOfGroup(g), byGroup.get(g.id), { diameter: dia, depth }), name: g.name }));
+    replaceModels(groups.map((g) => g.id), out, `Drilled ${drains.length} drain hole${drains.length > 1 ? 's' : ''}`);
+    state.drains = [];
+    PANELS.hollow.show();
+  });
+});
 
 // Joystick buttons repeat while held.
 for (const b of document.querySelectorAll('#joystick [data-move]')) {
