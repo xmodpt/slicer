@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -33,5 +34,8 @@ export default defineConfig(() => {
     server: { ...network, port: 5173 },
     preview: { ...network, port: 4173 },
     plugins: [noCachePlugin],
+    // manifold-3d imports node:module only when it runs under Node; in the
+    // browser that branch never runs – an empty stand-in keeps the build quiet.
+    resolve: { alias: { 'node:module': fileURLToPath(new URL('./src/empty-node-module.js', import.meta.url)) } },
   };
 });
