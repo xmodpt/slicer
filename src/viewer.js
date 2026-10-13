@@ -275,13 +275,37 @@ export class Viewer {
     this.requestRender();
   }
 
-  // Grid on the XY plane through the origin, a bit larger than the model,
-  // with red X and green Y axis lines.
+  // The printer to show (a profile from printers.js), or null for a plain grid.
+  setPrinter(printer) {
+    this.printer = printer;
+    this.updatePlate();
+  }
+
+  // Mark the print area red when the model doesn't fit.
+  setPrinterFits(fits) {
+    this.printerFits = fits;
+    if (this.printAreaLine) this.printAreaLine.material.color.set(fits ? 0x2fd36e : 0xff4d55);
+    this.requestRender();
+  }
+
+  // Without a printer: a grid on the XY plane through the origin, a bit larger
+  // than the model, with red X and green Y axis lines. With one: its build
+  // plate, print area and build height, and the printer body below.
   updatePlate() {
     for (const child of [...this.plate.children]) {
       this.plate.remove(child);
-      child.geometry.dispose();
+      child.traverse?.((o) => {
+        o.geometry?.dispose();
+        o.material?.dispose?.();
+      });
     }
+    this.printAreaLine = null;
+    if (this.printer) {
+      this._buildPrinter(this.printer);
+      this.requestRender();
+      return;
+    }
+    if (!this.geometry) return;
     const sphere = this.geometry.boundingSphere;
     const reach = Math.abs(sphere.center.x) + Math.abs(sphere.center.y) + sphere.radius;
     const step = 10 ** Math.floor(Math.log10(Math.max(reach, 1e-6) / 5));
@@ -296,6 +320,68 @@ export class Viewer {
     };
     this.plate.add(axis(new THREE.Vector3(half, 0, 0), 0xd9534f), axis(new THREE.Vector3(0, half, 0), 0x5cb85c));
     this.plateStep = step;
+  }
+
+  _buildPrinter({ x, y, z }) {
+    const P = this.plate;
+    const hx = x / 2, hy = y / 2;
+    const lines = (pts, color, opts = {}) => {
+      const g = new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p)));
+      const m = opts.dashed
+        ? new THREE.LineDashedMaterial({ color, dashSize: opts.dash || 4, gapSize: opts.gap || 3, transparent: true, opacity: opts.opacity ?? 1, depthWrite: false })
+        : new THREE.LineBasicMaterial({ color, transparent: true, opacity: opts.opacity ?? 1, depthWrite: false });
+      const l = new THREE.LineSegments(g, m);
+      if (opts.dashed) l.computeLineDistances();
+      return l;
+    };
+    // Build plate: a metal slab a little larger than the print area.
+    const m = Math.max(4, Math.min(x, y) * 0.04);
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(x + 2 * m, y + 2 * m, 2.5),
+      new THREE.MeshStandardMaterial({ color: 0x8d939e, metalness: 0.55, roughness: 0.45, transparent: true, opacity: 0.92 }),
+    );
+    slab.position.z = -1.25 - 0.02;
+    P.add(slab);
+    // Grid over the print area (10 mm, 50 mm lines brighter).
+    const minor = [], major = [];
+    for (let gx = -Math.floor(hx / 10) * 10; gx <= hx + 1e-6; gx += 10) (Math.round(gx) % 50 === 0 ? major : minor).push([gx, -hy, 0.01], [gx, hy, 0.01]);
+    for (let gy = -Math.floor(hy / 10) * 10; gy <= hy + 1e-6; gy += 10) (Math.round(gy) % 50 === 0 ? major : minor).push([-hx, gy, 0.01], [hx, gy, 0.01]);
+    P.add(lines(minor, 0x5d636e, { opacity: 0.55 }), lines(major, 0x767d8a, { opacity: 0.8 }));
+    // Print area outline (green; red when the model doesn't fit).
+    const c = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]];
+    const outline = [];
+    for (let i = 0; i < 4; i++) outline.push([...c[i], 0.02], [...c[(i + 1) % 4], 0.02]);
+    this.printAreaLine = lines(outline, this.printerFits === false ? 0xff4d55 : 0x2fd36e);
+    P.add(this.printAreaLine);
+    // Build height: the volume the model must stay in.
+    const box = [];
+    for (let i = 0; i < 4; i++) {
+      box.push([...c[i], z], [...c[(i + 1) % 4], z]);
+      box.push([...c[i], 0], [...c[i], z]);
+    }
+    P.add(lines(box, 0x6f8fb8, { dashed: true, opacity: 0.45 }));
+    // Printer body below the plate (see-through), on posts – as slicers show it.
+    const bw = x * 1.32 + 30, bd = y * 1.5 + 40, bh = Math.max(40, Math.min(x, y) * 0.45);
+    const gap = Math.max(25, z * 0.2);
+    const bodyGeo = new THREE.BoxGeometry(bw, bd, bh);
+    const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x9aa1ad, transparent: true, opacity: 0.13, depthWrite: false, roughness: 0.8 }));
+    body.position.set(0, 0, -gap - bh / 2);
+    P.add(body);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(bodyGeo), new THREE.LineBasicMaterial({ color: 0x8b93a0, transparent: true, opacity: 0.35, depthWrite: false }));
+    edges.position.copy(body.position);
+    P.add(edges);
+    const postGeo = new THREE.CylinderGeometry(Math.max(2, x * 0.012), Math.max(2, x * 0.012), gap - 2.5, 16);
+    postGeo.rotateX(Math.PI / 2);
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x9aa1ad, transparent: true, opacity: 0.45, metalness: 0.4, roughness: 0.5 });
+    for (const [px, py] of [[-hx * 0.85, -hy * 0.75], [hx * 0.85, -hy * 0.75], [-hx * 0.85, hy * 0.75], [hx * 0.85, hy * 0.75], [0, -hy * 0.75], [0, hy * 0.75]]) {
+      const post = new THREE.Mesh(postGeo, postMat);
+      post.position.set(px, py, -2.5 - (gap - 2.5) / 2);
+      P.add(post);
+    }
+    // Axes from the plate's centre.
+    const axisLen = Math.min(hx, hy) * 0.35;
+    P.add(lines([[0, 0, 0.03], [axisLen, 0, 0.03]], 0xd9534f), lines([[0, 0, 0.03], [0, axisLen, 0.03]], 0x5cb85c));
+    this.plateStep = 10;
   }
 
   // World axis (X or Y, with sign) closest to the screen's right and up
@@ -405,6 +491,14 @@ export class Viewer {
     const sphere = this.geometry?.boundingSphere;
     if (!sphere || !isFinite(sphere.radius) || sphere.radius === 0) return;
     this.controls.frame(sphere.center, sphere.radius);
+  }
+
+  // The whole printer in view: plate, build height and the body below.
+  framePrinter() {
+    if (!this.printer) return this.frame();
+    const { x, y, z } = this.printer;
+    const center = new THREE.Vector3(0, 0, z * 0.25);
+    this.controls.frame(center, Math.hypot(x * 0.75, y * 0.8, z * 0.6));
   }
 
   // Standard views. `dir` points from the model toward the camera.

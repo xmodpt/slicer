@@ -19,6 +19,28 @@
     </div>
 
     <!-- About -->
+    <!-- Printer profiles -->
+    <div id="printer-modal" class="modal" hidden>
+      <div class="modal-box left printer-box">
+        <button class="modal-close" id="printer-close" title="Close">×</button>
+        <h2>Printer</h2>
+        <p class="muted">Pick your resin printer: its build plate is shown in the 3D view, and models that don't fit are flagged. Sizes are the makers' build volumes (width × depth × height, mm) – check yours, or add your own.</p>
+        <div id="printer-list" class="printer-list"></div>
+        <div class="sub-head">Add or edit your own</div>
+        <div class="printer-form">
+          <label class="field">Name <input id="pc-name" type="text" placeholder="My printer" /></label>
+          <label class="field">Width X <input id="pc-x" type="number" min="1" step="0.01" /> mm</label>
+          <label class="field">Depth Y <input id="pc-y" type="number" min="1" step="0.01" /> mm</label>
+          <label class="field">Height Z <input id="pc-z" type="number" min="1" step="0.01" /> mm</label>
+          <div class="row">
+            <button id="pc-save" class="primary">Save as my printer</button>
+            <button id="pc-delete" hidden>Delete</button>
+          </div>
+          <p id="pc-status" class="muted"></p>
+        </div>
+      </div>
+    </div>
+
     <div id="about" class="modal" hidden>
       <div class="modal-box">
         <button class="modal-close" id="about-close" title="Close">×</button>
@@ -76,6 +98,28 @@
 
       <div class="tb-group right">
         <div class="menu">
+          <button class="tb-btn" data-menu title="Check, repair and change the model">
+            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z" /></svg>Tools<span class="caret">▾</span>
+          </button>
+          <div class="menu-panel tools-menu">
+            <p class="menu-title">Check</p>
+            <button data-panel="info">Model info – volume, resin, cost</button>
+            <button data-panel="repair">Repair</button>
+            <button data-panel="thickness">Wall thickness</button>
+            <button data-panel="overhang">Overhangs &amp; auto-orient</button>
+            <button data-panel="measure">Measure</button>
+            <p class="menu-title">Change</p>
+            <button data-panel="hollow">Hollow &amp; drain holes</button>
+            <button data-panel="text">Text / logo</button>
+            <button data-panel="base">Add a base</button>
+            <button data-panel="combine">Combine models</button>
+            <button data-panel="mirror">Mirror</button>
+            <button data-panel="smooth">Smooth</button>
+          </div>
+        </div>
+        <button class="tb-btn" id="printer-open" title="Choose your printer – its build plate is shown and the model checked against it">
+          <svg viewBox="0 0 24 24"><path d="M5 20h14M7 20V9h10v11M9 9V4h6v5M4 9h16" /></svg><span id="printer-name">No printer</span>
+        </button>
           <button class="tb-btn" data-menu title="View options">
             <svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>View<span class="caret">▾</span>
           </button>
@@ -89,6 +133,7 @@
               <button data-view="back">Back</button>
               <button data-view="bottom">Bottom</button>
               <button id="frame" title="F">Frame</button>
+              <button id="frame-plate" title="The whole printer and its build plate">Plate</button>
             </div>
             <label class="field">Camera <select id="projection"><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
             <label class="field">Rotate <select id="rotate-mode"><option value="free">Free (all directions)</option><option value="turntable">Turntable (Z up)</option></select></label>
@@ -447,6 +492,7 @@
       <span id="view-mode" class="mode-chip">Normal</span>
       <span id="status-hint"></span>
       <span class="spacer"></span>
+      <span id="fit-chip" class="fit-chip" hidden></span>
       <span id="placement"></span>
       <span class="sep"></span>
       <span>Selected <b id="sel-count">0</b></span>

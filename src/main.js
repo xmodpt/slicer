@@ -9,6 +9,7 @@ import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
+import { allPrinters, selectedPrinter, selectPrinter, saveCustomPrinter, deleteCustomPrinter, fitCheck } from './printers.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -366,6 +367,7 @@ $('fill').addEventListener('click', closeHoles);
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 $('frame').addEventListener('click', () => viewer.frame());
+$('frame-plate').addEventListener('click', () => viewer.framePrinter());
 $('show-boundary').addEventListener('change', (e) => viewer.setBoundariesVisible(e.target.checked));
 $('show-wire').addEventListener('change', (e) => viewer.setWireframe(e.target.checked));
 for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => viewer.setView(b.dataset.view));
@@ -1591,6 +1593,7 @@ const fmt = (v) => (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2));
 
 function updatePlacement() {
   const el = $('placement');
+  checkFit();
   if (!state.mesh) {
     el.textContent = '';
     return;
@@ -1603,6 +1606,119 @@ function updatePlacement() {
     `<b>${target ? 'Selection' : 'Model'}</b> X ${fmt(com.center[0])} · Y ${fmt(com.center[1])} · Z ${fmt(com.minZ)}` +
     ` · Size ${fmt(max[0] - min[0])} × ${fmt(max[1] - min[1])} × ${fmt(max[2] - min[2])}`;
 }
+
+// ---------------------------------------------------------------------------
+// Printer: its build plate in the view, and whether the model fits it.
+
+function checkFit() {
+  const chip = $('fit-chip');
+  const printer = state.printer;
+  if (!printer || !state.mesh) {
+    chip.hidden = true;
+    viewer.setPrinterFits(true);
+    return;
+  }
+  const { fits, over } = fitCheck(printer, state.mesh.bounds());
+  chip.hidden = false;
+  chip.className = 'fit-chip ' + (fits ? 'ok' : 'bad');
+  chip.textContent = fits
+    ? `Fits the ${printer.name}`
+    : `Doesn't fit the ${printer.name} – ${['X', 'Y', 'Z'].map((a, i) => (over[i] ? `${a} +${fmt(over[i])}` : '')).filter(Boolean).join(', ')} mm`;
+  chip.title = fits ? `Build area ${printer.x} × ${printer.y} × ${printer.z} mm` : 'Move it onto the plate, turn it, resize it or cut it into parts';
+  viewer.setPrinterFits(fits);
+}
+
+function applyPrinter(printer) {
+  state.printer = printer;
+  $('printer-name').textContent = printer ? printer.name : 'No printer';
+  viewer.setPrinter(printer);
+  checkFit();
+}
+
+function renderPrinterList() {
+  const list = $('printer-list');
+  list.innerHTML = '';
+  const current = state.printer?.id || '';
+  const add = (p) => {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="radio" name="printer" /> <span class="pn"></span><span class="dims"></span>`;
+    const radio = label.querySelector('input');
+    radio.checked = (p?.id || '') === current;
+    label.querySelector('.pn').textContent = p ? p.name : 'No printer – a plain grid';
+    label.querySelector('.dims').textContent = p ? `${p.x} × ${p.y} × ${p.z}` : '';
+    radio.addEventListener('change', () => {
+      selectPrinter(p ? p.id : null);
+      applyPrinter(p);
+      viewer.framePrinter();
+    });
+    if (p) {
+      const edit = document.createElement('button');
+      edit.className = 'edit';
+      edit.textContent = p.brand === 'Custom' ? 'Edit' : 'Copy';
+      edit.title = p.brand === 'Custom' ? 'Change this printer' : 'Start your own profile from this one';
+      edit.addEventListener('click', (e) => {
+        e.preventDefault();
+        state.editingPrinter = p.brand === 'Custom' ? p.id : null;
+        $('pc-name').value = p.brand === 'Custom' ? p.name : `${p.brand} ${p.name} (mine)`;
+        $('pc-x').value = p.x;
+        $('pc-y').value = p.y;
+        $('pc-z').value = p.z;
+        $('pc-delete').hidden = !state.editingPrinter;
+        $('pc-status').textContent = '';
+      });
+      label.append(edit);
+    }
+    list.append(label);
+  };
+  add(null);
+  let brand = '';
+  for (const p of allPrinters()) {
+    if (p.brand !== brand) {
+      brand = p.brand;
+      const h = document.createElement('div');
+      h.className = 'brand-head';
+      h.textContent = brand === 'Custom' ? 'Your printers' : brand;
+      list.append(h);
+    }
+    add(p);
+  }
+}
+
+$('printer-open').addEventListener('click', () => {
+  renderPrinterList();
+  $('pc-status').textContent = '';
+  $('printer-modal').hidden = false;
+});
+$('printer-close').addEventListener('click', () => ($('printer-modal').hidden = true));
+$('printer-modal').addEventListener('click', (e) => e.target === $('printer-modal') && ($('printer-modal').hidden = true));
+$('pc-save').addEventListener('click', () => {
+  try {
+    const p = saveCustomPrinter({ id: state.editingPrinter, name: $('pc-name').value, x: $('pc-x').value, y: $('pc-y').value, z: $('pc-z').value });
+    state.editingPrinter = p.id;
+    selectPrinter(p.id);
+    applyPrinter(p);
+    viewer.framePrinter();
+    renderPrinterList();
+    $('pc-delete').hidden = false;
+    $('pc-status').textContent = `Saved and selected: ${p.name}.`;
+  } catch (err) {
+    $('pc-status').textContent = err.message;
+  }
+});
+$('pc-delete').addEventListener('click', () => {
+  if (!state.editingPrinter) return;
+  deleteCustomPrinter(state.editingPrinter);
+  if (state.printer?.id === state.editingPrinter) {
+    selectPrinter(null);
+    applyPrinter(null);
+  }
+  state.editingPrinter = null;
+  $('pc-delete').hidden = true;
+  renderPrinterList();
+  $('pc-status').textContent = 'Deleted.';
+});
+for (const id of ['pc-name', 'pc-x', 'pc-y', 'pc-z']) $(id).addEventListener('keydown', (e) => e.stopPropagation());
+applyPrinter(selectedPrinter());
 
 // Joystick buttons repeat while held.
 for (const b of document.querySelectorAll('#joystick [data-move]')) {
