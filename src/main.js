@@ -10,6 +10,7 @@ import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
 import { modelInfo, resinUse, overhangs, bestOrientation, wallThickness } from './analysis.js';
+import { diagnose, repair, selfIntersections, mirror, smooth } from './repair.js';
 import { parseOBJ, writeOBJ, read3MF, write3MF } from './formats.js';
 import { allPrinters, selectedPrinter, selectPrinter, saveCustomPrinter, deleteCustomPrinter, fitCheck } from './printers.js';
 
@@ -1407,6 +1408,12 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
   if (tool === 'brush' || moved) return;
+  // A panel waiting for a click on the model (Measure, drain holes, text).
+  if (state.pickMode && PANELS[state.pickMode]?.click) {
+    const point = viewer.pointAt(p.x, p.y);
+    if (point) PANELS[state.pickMode].click(point.toArray(), viewer.faceAt(p.x, p.y), e);
+    return;
+  }
   if (tool === 'cut' && manualPlacement() && !e.shiftKey) {
     manualClick(p, e.ctrlKey || e.metaKey);
     return;
@@ -1802,6 +1809,7 @@ function closePanel() {
   cardOverride = null;
   PANELS[name]?.close?.();
   state.pickMode = null;
+  viewer.setMarkers(null);
   setOverlay(null);
 }
 // Re-run the open panel after the model changed.
@@ -1941,6 +1949,131 @@ $('th-select').addEventListener('click', () => {
   if (state.mode !== 'edit') setMode('edit');
   applyFaces(faces, 'replace');
 });
+
+// Repair.
+PANELS.repair = {
+  open: () => PANELS.repair.refresh(),
+  refresh() {
+    const d = diagnose(state.mesh);
+    state.crossing = d.crossing;
+    const row = (n, what, fix) => `<div class="${n ? 'bad' : 'good'}">${n ? `⚠ ${n.toLocaleString()} ${what}` : `✓ No ${what}`}${n && fix ? ` – ${fix}` : ''}</div>`;
+    $('repair-report').innerHTML =
+      row(d.flipped, 'faces turned the wrong way', 'Repair turns them round') +
+      row(d.duplicate, 'duplicate triangles', 'Repair removes them') +
+      row(d.degenerate, 'zero-size triangles', 'Repair removes them') +
+      row(d.sheet, 'paper-thin double-wall triangles', 'Repair removes them') +
+      row(d.crossing.length, 'faces passing through other faces', 'usually parts that overlap; fine for resin slicers, but Combine models (join) merges them cleanly');
+    $('repair-run').disabled = !(d.flipped || d.duplicate || d.degenerate || d.sheet);
+    $('repair-select').disabled = !d.crossing.length;
+  },
+};
+$('repair-run').addEventListener('click', () =>
+  busy(async () => {
+    await stage('Repairing…', null);
+    let r;
+    edit((mesh) => {
+      r = repair(mesh);
+      return `Repaired: ${r.flipped} faces turned round, ${r.duplicate + r.degenerate + r.sheet} bad triangles removed`;
+    });
+  }),
+);
+$('repair-select').addEventListener('click', () => {
+  if (!state.crossing?.length) return;
+  if (state.mode !== 'edit') setMode('edit');
+  applyFaces(state.crossing, 'replace');
+});
+
+// Measure: clicks on the model.
+PANELS.measure = {
+  open() {
+    state.pickMode = 'measure';
+    state.measure = [];
+    if (state.tool !== 'pick' && state.tool !== 'object') setTool(MODE_DEFAULT[state.mode]);
+    PANELS.measure.show();
+  },
+  show() {
+    const pts = state.measure || [];
+    viewer.setMarkers(pts);
+    const rows = [];
+    if (pts.length >= 2) {
+      const [a, b] = pts;
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      rows.push(['Distance', `${fmt(Math.hypot(...d))} mm`], ['X · Y · Z', d.map((v) => fmt(Math.abs(v))).join(' · ') + ' mm']);
+    }
+    if (pts.length === 3) {
+      const [a, b, c] = pts.map((p) => new THREE.Vector3(...p));
+      const u = a.sub(b), w = c.sub(b);
+      rows.push(['Angle', `${((u.angleTo(w) * 180) / Math.PI).toFixed(1)}°`]);
+      const d2 = pts[2].map((v, i) => v - pts[1][i]);
+      rows.push(['2nd distance', `${fmt(Math.hypot(...d2))} mm`]);
+    }
+    $('measure-out').innerHTML = rows.length ? rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') : `<dt>Click a point on the model</dt><dd></dd>`;
+  },
+  click(point) {
+    if ((state.measure?.length || 0) >= 3) state.measure = [];
+    state.measure.push(point);
+    PANELS.measure.show();
+  },
+};
+$('measure-clear').addEventListener('click', () => {
+  state.measure = [];
+  PANELS.measure.show();
+});
+
+// An edit that moves vertices but keeps the triangles in order (mirror,
+// smooth): the models stay as they are, one undo step.
+function reshape(fn) {
+  if (!state.mesh) return;
+  const before = snapshotAll();
+  state.moving = false;
+  const message = fn(state.mesh);
+  state.undo.push(before);
+  if (state.undo.length > 50) state.undo.shift();
+  state.redo = [];
+  refresh();
+  if (message) toast(message);
+}
+
+// Mirror.
+for (const b of document.querySelectorAll('[data-mirror]')) {
+  b.addEventListener('click', () => {
+    const axis = +b.dataset.mirror;
+    const faces = targetFaces();
+    const fm = faces ? faceMaskOf(faces) : null;
+    const vm = fm ? state.mesh.verticesOf(fm) : null;
+    reshape((mesh) => {
+      const { min, max } = mesh.bounds(fm);
+      const c = [0, 1, 2].map((i) => (min[i] + max[i]) / 2);
+      mirror(mesh, axis, c, vm, fm);
+      if (axis === 2) {
+        const z = mesh.bounds(fm).min[2];
+        mesh.translate(0, 0, -z, vm);
+      }
+      return `Mirrored ${['left ↔ right', 'front ↔ back', 'upside down'][axis]}`;
+    });
+  });
+}
+
+// Smooth.
+$('sm-strength').addEventListener('input', (e) => ($('sm-strength-val').textContent = e.target.value + '%'));
+$('sm-passes').addEventListener('keydown', (e) => e.stopPropagation());
+$('sm-run').addEventListener('click', () =>
+  busy(async () => {
+    await stage('Smoothing…', null);
+    // Edit mode: the selected faces; else the selected models or everything.
+    const faces = state.mode === 'edit' && countSelected() ? null : targetFaces();
+    const fm = state.mode === 'edit' && countSelected() ? state.selection.slice() : faces ? faceMaskOf(faces) : null;
+    reshape((mesh) => {
+      // Each model's lowest point, to put it back down afterwards (smoothing
+      // rounds the bottom edge a little).
+      const models = state.mode === 'edit' && countSelected() ? [] : listGroups().map((g) => faceMaskOf(g.faces())).filter((m) => !fm || m.some((v, t) => v && fm[t]));
+      const z0 = models.map((m) => mesh.bounds(m).min[2]);
+      smooth(mesh, { passes: Math.max(1, Math.min(50, +$('sm-passes').value || 5)), strength: +$('sm-strength').value / 100, faceMask: fm });
+      models.forEach((m, i) => mesh.translate(0, 0, z0[i] - mesh.bounds(m).min[2], mesh.verticesOf(m)));
+      return 'Smoothed – Ctrl+Z to undo';
+    });
+  }),
+);
 
 // Joystick buttons repeat while held.
 for (const b of document.querySelectorAll('#joystick [data-move]')) {

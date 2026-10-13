@@ -448,6 +448,40 @@ export class Viewer {
     this.hoverObjects = new Set();
   }
 
+  // Points (and the lines between them) for Measure and for placing things
+  // (drain holes, text): drawn on top of the model. points: [[x, y, z]],
+  // lines: true to join them in order.
+  setMarkers(points, { lines = true, color = 0xffd23f } = {}) {
+    if (this.markers) {
+      this.scene.remove(this.markers);
+      this.markers.traverse((o) => {
+        o.geometry?.dispose();
+        o.material?.dispose?.();
+      });
+      this.markers = null;
+    }
+    if (!points || !points.length) return this.requestRender();
+    const g = new THREE.Group();
+    const r = (this.geometry?.boundingSphere?.radius || 10) * 0.012;
+    const dotGeo = new THREE.SphereGeometry(r, 16, 12);
+    const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
+    for (const p of points) {
+      const d = new THREE.Mesh(dotGeo, mat);
+      d.position.set(...p);
+      d.renderOrder = 10;
+      g.add(d);
+    }
+    if (lines && points.length > 1) {
+      const lg = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(...p)));
+      const l = new THREE.Line(lg, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+      l.renderOrder = 10;
+      g.add(l);
+    }
+    this.markers = g;
+    this.scene.add(g);
+    this.requestRender();
+  }
+
   // overlay: { index: Uint8Array per face (255 = no colour), palette: [THREE.Color] }
   // or null. Call setSelection afterwards to repaint.
   setOverlay(overlay) {

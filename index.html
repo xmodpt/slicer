@@ -397,6 +397,38 @@
             <button id="th-select" title="Select the faces thinner than the minimum (Edit mode)">Select the thin areas</button>
           </div>
 
+          <div class="card-body" data-card="repair">
+            <p class="hint">Looks for faces turned the wrong way, duplicate and zero-size triangles, paper-thin double walls and places where the surface passes through itself.</p>
+            <div id="repair-report" class="fix-report"></div>
+            <div class="row">
+              <button id="repair-run" class="primary">Repair</button>
+              <button id="repair-select" title="Select the faces that pass through other faces (Edit mode)">Select crossings</button>
+            </div>
+            <p class="hint">Holes and floating parts: Fix model (W).</p>
+          </div>
+
+          <div class="card-body" data-card="measure">
+            <p class="hint">Click two points on the model for the distance; a third gives the angle at the middle point. A fourth click starts again.</p>
+            <dl id="measure-out" class="info-list"></dl>
+            <button id="measure-clear">Clear</button>
+          </div>
+
+          <div class="card-body" data-card="mirror">
+            <p class="hint">Flips the selected models (or everything) across its centre.</p>
+            <div class="row">
+              <button data-mirror="0">Mirror X (left ↔ right)</button>
+              <button data-mirror="1">Mirror Y (front ↔ back)</button>
+            </div>
+            <button data-mirror="2">Mirror Z (upside down)</button>
+          </div>
+
+          <div class="card-body" data-card="smooth">
+            <p class="hint">Softens a rough or noisy surface (scans). In Edit mode only the selected faces are smoothed and the edge of the area stays put; otherwise the selected models, or everything.</p>
+            <label class="field">Strength <input id="sm-strength" type="range" min="10" max="90" value="50" /> <span id="sm-strength-val">50%</span></label>
+            <label class="field">Passes <input id="sm-passes" type="number" min="1" max="50" value="5" /></label>
+            <button id="sm-run" class="primary">Smooth</button>
+          </div>
+
           <div class="card-body" data-card="orbit">
             <p class="hint">Left-drag rotates the view, right-drag pans, wheel zooms.</p>
           </div>
