@@ -1529,3 +1529,11 @@ svg.logo .r { fill: #008232; stroke: none; }
   flex: 1;
   min-width: 0;
 }
+
+.info-list { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 6px; font-size: 13px; }
+.info-list dt { color: var(--muted); }
+.info-list dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.sw.red { background: #ff4d55; }
+.sw.orange { background: #f2a33a; }
+.sw.green { background: #4cc479; }

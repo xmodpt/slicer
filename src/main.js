@@ -9,6 +9,7 @@ import { NavGizmo } from './gizmo.js';
 import { cutWithPins, analyzeCut, connectorOptions } from './cut.js';
 import { findFloatingParts } from './floating.js';
 import { CutGizmo } from './cutgizmo.js';
+import { modelInfo, resinUse, overhangs, bestOrientation, wallThickness } from './analysis.js';
 import { parseOBJ, writeOBJ, read3MF, write3MF } from './formats.js';
 import { allPrinters, selectedPrinter, selectPrinter, saveCustomPrinter, deleteCustomPrinter, fitCheck } from './printers.js';
 
@@ -717,6 +718,8 @@ function refresh({ frame = false } = {}) {
   if (state.tool === 'cut') setCut({});
   if (state.tool === 'scale') fillScale({ force: true });
   if (cardOverride === 'fix') renderFix();
+  state.thickness = null;
+  refreshPanel();
   updateButtons();
 }
 
@@ -1135,6 +1138,17 @@ const CARD_TITLES = {
   cut: 'Plane cut',
   holes: 'Close holes',
   orbit: 'View',
+  info: 'Model info',
+  overhang: 'Overhangs & orientation',
+  thickness: 'Wall thickness',
+  repair: 'Repair',
+  measure: 'Measure',
+  hollow: 'Hollow & drain holes',
+  text: 'Text / logo',
+  base: 'Add a base',
+  combine: 'Combine models',
+  mirror: 'Mirror',
+  smooth: 'Smooth',
 };
 const TOOL_HINTS = {
   pick: 'Click a model to select it · Shift adds · Ctrl removes · Tab = Edit mode for its parts',
@@ -1190,7 +1204,7 @@ function setTool(tool, fromMode = false) {
 }
 
 $('card-close').addEventListener('click', () => {
-  if (cardOverride) cardOverride = null;
+  if (cardOverride) closePanel();
   else cardClosed = true;
   showCard();
 });
@@ -1481,6 +1495,8 @@ function transformBurst(change) {
   viewer.updatePositions(mesh);
   updatePlacement();
   updateButtons();
+  if (cardOverride === 'overhang' || cardOverride === 'info') refreshPanel();
+  if (cardOverride === 'thickness') state.thickness = null;
 }
 
 let rotateStep = 15;
@@ -1765,6 +1781,166 @@ $('pc-delete').addEventListener('click', () => {
 });
 for (const id of ['pc-name', 'pc-x', 'pc-y', 'pc-z']) $(id).addEventListener('keydown', (e) => e.stopPropagation());
 applyPrinter(selectedPrinter());
+
+// ---------------------------------------------------------------------------
+// Tools panels (Tools ▾): each opens a card; some colour the model (overlay)
+// or wait for clicks on it (pickMode).
+
+const PANELS = {};
+function openPanel(name) {
+  for (const m of document.querySelectorAll('.menu.open')) m.classList.remove('open');
+  if (!state.mesh) return toast('Open a model first');
+  if (cardOverride && cardOverride !== name) closePanel();
+  if (state.tool !== 'pick' && state.mode !== 'edit' && !['measure', 'hollow', 'text'].includes(name)) setTool(MODE_DEFAULT[state.mode]);
+  cardOverride = name;
+  cardClosed = false;
+  showCard();
+  PANELS[name]?.open?.();
+}
+function closePanel() {
+  const name = cardOverride;
+  cardOverride = null;
+  PANELS[name]?.close?.();
+  state.pickMode = null;
+  setOverlay(null);
+}
+// Re-run the open panel after the model changed.
+function refreshPanel() {
+  if (cardOverride && PANELS[cardOverride]?.refresh) PANELS[cardOverride].refresh();
+}
+for (const b of document.querySelectorAll('[data-panel]')) b.addEventListener('click', (e) => {
+  e.stopPropagation();
+  openPanel(b.dataset.panel);
+});
+
+const OVERLAY_COLORS = [new THREE.Color(0xff4d55), new THREE.Color(0xf2a33a), new THREE.Color(0x4cc479)];
+function setOverlay(index) {
+  if (!state.mesh) return;
+  viewer.setOverlay(index ? { index, palette: OVERLAY_COLORS } : null);
+  viewer.setSelection(state.selection);
+}
+
+// The faces the tools work on: the selected models, else everything.
+function targetFaces() {
+  if (!countSelected()) return null;
+  const groups = new Set();
+  state.selection.forEach((v, t) => v && groups.add(state.faceGroup[t]));
+  const faces = [];
+  state.faceGroup.forEach((g, t) => groups.has(g) && faces.push(t));
+  return faces;
+}
+
+// Model info.
+PANELS.info = {
+  open: () => PANELS.info.refresh(),
+  refresh() {
+    const faces = targetFaces();
+    const info = modelInfo(state.mesh, faces);
+    const r = resinUse(info.volume, { density: +$('info-density').value || 1.1, pricePerKg: +$('info-price').value || 0 });
+    const stats = state.mesh.stats();
+    const rows = [
+      ['Model', faces ? 'Selected models' : 'Everything'],
+      ['Size', info.size.map((v) => fmt(v)).join(' × ') + ' mm'],
+      ['Volume', `${(info.volume / 1000).toFixed(2)} cm³`],
+      ['Surface', `${(info.area / 100).toFixed(1)} cm²`],
+      ['Resin', `${r.ml.toFixed(1)} ml`],
+      ['Weight', `${r.grams.toFixed(1)} g`],
+      ['Cost', r.cost.toFixed(2)],
+      ['Triangles', (faces ? faces.length : state.mesh.triangleCount).toLocaleString()],
+    ];
+    $('info-list').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    $('info-note').textContent = stats.watertight
+      ? 'Supports add a little more resin (typically 5–15 %).'
+      : 'The model has holes or loose edges, so the volume is only an estimate – Tools ▾ → Repair, or close the holes, first.';
+  },
+};
+for (const id of ['info-density', 'info-price']) $(id).addEventListener('input', () => cardOverride === 'info' && PANELS.info.refresh());
+
+// Overhangs & auto-orient.
+PANELS.overhang = {
+  open: () => PANELS.overhang.refresh(),
+  refresh() {
+    const { mask, area } = overhangs(state.mesh, { angle: +$('oh-angle').value });
+    const index = new Uint8Array(mask.length).fill(255);
+    mask.forEach((v, t) => v && (index[t] = 0));
+    setOverlay(index);
+    $('oh-info').textContent = area > 0.5 ? `Overhanging area: ${(area / 100).toFixed(1)} cm² (red).` : 'Nothing overhangs at this angle.';
+  },
+};
+$('oh-angle').addEventListener('input', (e) => {
+  $('oh-angle-val').textContent = e.target.value + '°';
+  if (cardOverride === 'overhang') PANELS.overhang.refresh();
+});
+$('oh-orient').addEventListener('click', () =>
+  busy(async () => {
+    await stage('Trying orientations…', null);
+    const faces = targetFaces();
+    const sub = faces ? state.mesh.extractFaceList(faces) : state.mesh;
+    const best = bestOrientation(sub, { angle: +$('oh-angle').value });
+    const d = new THREE.Vector3(...best.down).normalize();
+    const target = new THREE.Vector3(0, 0, -1);
+    const dotv = d.dot(target);
+    const mask = faces ? state.mesh.verticesOf(faceMaskOf(faces)) : null;
+    if (dotv < 0.9999) {
+      const axis = dotv < -0.9999 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3().crossVectors(d, target).normalize();
+      const angle = Math.acos(Math.max(-1, Math.min(1, dotv)));
+      transformBurst(() => {
+        const c = state.mesh.centerOfMass(faces ? faceMaskOf(faces) : null).center;
+        state.mesh.rotate(axis.toArray(), angle, c, mask);
+        const minZ = state.mesh.bounds(faces ? faceMaskOf(faces) : null).min[2];
+        state.mesh.translate(0, 0, -minZ, mask);
+      });
+      state.moving = false;
+    }
+    $('oh-result').textContent =
+      best.before.area - best.area < 1
+        ? 'It was already turned the best way.'
+        : `Overhangs ${(best.before.area / 100).toFixed(1)} → ${(best.area / 100).toFixed(1)} cm²; height ${fmt(best.before.height)} → ${fmt(best.height)} mm. Ctrl+Z turns it back.`;
+    PANELS.overhang.refresh();
+    viewer.frame();
+  }),
+);
+function faceMaskOf(faces) {
+  const m = new Uint8Array(state.mesh.triangleCount);
+  for (const t of faces) m[t] = 1;
+  return m;
+}
+
+// Wall thickness.
+PANELS.thickness = {
+  open: () => PANELS.thickness.refresh(true),
+  refresh(recompute) {
+    if (recompute || !state.thickness || state.thickness.length !== state.mesh.triangleCount) {
+      state.thickness = wallThickness(state.mesh);
+    }
+    const min = +$('th-min').value || 1;
+    const th = state.thickness;
+    const index = new Uint8Array(th.length);
+    let thin = 0, thinArea = 0;
+    const P = state.mesh.positions, I = state.mesh.indices;
+    for (let t = 0; t < th.length; t++) {
+      index[t] = th[t] < min ? 0 : th[t] < min * 1.5 ? 1 : 2;
+      if (index[t] === 0) {
+        thin++;
+        const a = I[t * 3] * 3, b = I[t * 3 + 1] * 3, c = I[t * 3 + 2] * 3;
+        const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+        thinArea += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+      }
+    }
+    setOverlay(index);
+    $('th-info').textContent = thin ? `${(thinArea / 100).toFixed(2)} cm² thinner than ${min} mm (red).` : `No walls thinner than ${min} mm.`;
+    $('th-select').disabled = !thin;
+  },
+};
+$('th-min').addEventListener('input', () => cardOverride === 'thickness' && PANELS.thickness.refresh());
+$('th-min').addEventListener('keydown', (e) => e.stopPropagation());
+$('th-select').addEventListener('click', () => {
+  const min = +$('th-min').value || 1;
+  const faces = [];
+  state.thickness.forEach((v, t) => v < min && faces.push(t));
+  if (state.mode !== 'edit') setMode('edit');
+  applyFaces(faces, 'replace');
+});
 
 // Joystick buttons repeat while held.
 for (const b of document.querySelectorAll('#joystick [data-move]')) {

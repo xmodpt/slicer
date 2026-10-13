@@ -374,6 +374,29 @@
             </div>
           </div>
 
+          <div class="card-body" data-card="info">
+            <dl id="info-list" class="info-list"></dl>
+            <div class="sub-head">Resin</div>
+            <label class="field" title="Most standard resins weigh 1.05–1.25 g/ml – see the bottle">Density <input id="info-density" type="number" min="0.5" max="3" step="0.01" value="1.10" /> g/ml</label>
+            <label class="field">Price <input id="info-price" type="number" min="0" step="0.5" value="30" /> per kg</label>
+            <p id="info-note" class="hint"></p>
+          </div>
+
+          <div class="card-body" data-card="overhang">
+            <p class="hint">Red faces point down more steeply than the angle and need supports.</p>
+            <label class="field">Angle <input id="oh-angle" type="range" min="20" max="70" value="45" /> <span id="oh-angle-val">45°</span></label>
+            <p id="oh-info" class="hint"></p>
+            <button id="oh-orient" class="primary" title="Turn the model (or the selected models) so that the least area overhangs">Auto-orient – fewest supports</button>
+            <p id="oh-result" class="hint"></p>
+          </div>
+
+          <div class="card-body" data-card="thickness">
+            <p class="hint">Measured from each face straight into the model. <span class="sw red"></span> thinner than the minimum · <span class="sw orange"></span> close to it · <span class="sw green"></span> fine.</p>
+            <label class="field" title="Resin: about 0.8–1 mm for small details, 1.5–2 mm for walls of hollowed models">Minimum <input id="th-min" type="number" min="0.1" step="0.1" value="1.0" /> mm</label>
+            <p id="th-info" class="hint"></p>
+            <button id="th-select" title="Select the faces thinner than the minimum (Edit mode)">Select the thin areas</button>
+          </div>
+
           <div class="card-body" data-card="orbit">
             <p class="hint">Left-drag rotates the view, right-drag pans, wheel zooms.</p>
           </div>

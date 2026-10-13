@@ -156,6 +156,7 @@ export class Viewer {
     this.setBoundaryEdges(mesh);
     this.updatePlate();
     this.setObjects(null, null);
+    this.overlay = null;
     this.setSelection(selection);
     if (frame) this.frame();
     this.pickDirty = true;
@@ -428,6 +429,11 @@ export class Viewer {
   // optional per-object colours, else the plain model colour.
   _faceColor(t, mask) {
     if (mask[t]) return SELECTED_COLOR;
+    // An analysis overlay (wall thickness, overhangs): one palette index per face.
+    if (this.overlay) {
+      const i = this.overlay.index[t];
+      if (i !== 255) return this.overlay.palette[i];
+    }
     const objectOf = this.objectOf;
     if (objectOf && this.hoverObjects.has(objectOf[t])) return HOVER_COLOR;
     if (objectOf && this.objectColors) return this.objectColors[objectOf[t]] || BASE_COLOR;
@@ -440,6 +446,12 @@ export class Viewer {
     this.objectOf = objectOf;
     this.objectColors = colors;
     this.hoverObjects = new Set();
+  }
+
+  // overlay: { index: Uint8Array per face (255 = no colour), palette: [THREE.Color] }
+  // or null. Call setSelection afterwards to repaint.
+  setOverlay(overlay) {
+    this.overlay = overlay && overlay.index.length === this.triangleCount ? overlay : null;
   }
 
   setSelection(mask) {
